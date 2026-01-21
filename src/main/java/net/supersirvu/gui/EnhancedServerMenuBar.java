@@ -1,7 +1,5 @@
 package net.supersirvu.gui;
 
-import com.mojang.brigadier.arguments.ArgumentType;
-import com.mojang.brigadier.arguments.IntegerArgumentType;
 import net.minecraft.server.dedicated.MinecraftDedicatedServer;
 import net.minecraft.server.world.ServerWorld;
 import net.minecraft.world.Difficulty;
@@ -200,10 +198,8 @@ public class EnhancedServerMenuBar extends JMenuBar {
             }
         });
 
-        enabledCheckbox.addActionListener(e -> {
-            server.getCommandManager().executeWithPrefix(server.getCommandSource(),
-                    enabledCheckbox.isSelected() ? "whitelist on" : "whitelist off");
-        });
+        enabledCheckbox.addActionListener(e -> server.getCommandManager().executeWithPrefix(server.getCommandSource(),
+                enabledCheckbox.isSelected() ? "whitelist on" : "whitelist off"));
 
         closeButton.addActionListener(e -> dialog.dispose());
 
@@ -646,13 +642,15 @@ public class EnhancedServerMenuBar extends JMenuBar {
 
     private void showWorldInfo(ServerWorld world) {
         String info = String.format(
-                "World: %s\n\n" +
-                        "Dimension: %s\n" +
-                        "Loaded Chunks: %d\n" +
-                        "Entities: %d\n" +
-                        "Time: %d\n" +
-                        "Weather: %s\n" +
-                        "Difficulty: %s",
+                """
+                        World: %s
+                        
+                        Dimension: %s
+                        Loaded Chunks: %d
+                        Entities: %d
+                        Time: %d
+                        Weather: %s
+                        Difficulty: %s""",
                 getWorldName(world),
                 world.getRegistryKey().getValue().toString(),
                 world.getChunkManager().getLoadedChunkCount(),
