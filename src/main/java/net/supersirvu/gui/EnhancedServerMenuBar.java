@@ -443,7 +443,7 @@ public class EnhancedServerMenuBar extends JMenuBar {
         Map<String, JComponent> gameruleComponents = new java.util.HashMap<>();
 
         // Dynamically discover and add all gamerules
-        GameRules.accept(new GameRules.Visitor() {
+        world.getGameRules().accept(new GameRules.Visitor() {
             @Override
             public void visitBoolean(GameRules.Key<GameRules.BooleanRule> key, GameRules.Type<GameRules.BooleanRule> type) {
                 GameRules.Category category = key.getCategory();
@@ -528,7 +528,7 @@ public class EnhancedServerMenuBar extends JMenuBar {
                     "Confirm Reset",
                     JOptionPane.YES_NO_OPTION);
             if (confirm == JOptionPane.YES_OPTION) {
-                resetGamerulesToDefaults();
+                resetGamerulesToDefaults(world);
                 JOptionPane.showMessageDialog(dialog, "Game rules reset to defaults!", "Success", JOptionPane.INFORMATION_MESSAGE);
                 dialog.dispose();
                 // Reopen dialog to show updated values
@@ -602,9 +602,9 @@ public class EnhancedServerMenuBar extends JMenuBar {
         }
     }
 
-    private void resetGamerulesToDefaults() {
+    private void resetGamerulesToDefaults(ServerWorld world) {
         // Reset common gamerules to their defaults using GameRules class knowledge
-        GameRules.accept(new GameRules.Visitor() {
+        world.getGameRules().accept(new GameRules.Visitor() {
             @Override
             public void visitBoolean(GameRules.Key<GameRules.BooleanRule> key, GameRules.Type<GameRules.BooleanRule> type) {
                 // Create a new default rule to get the default value
