@@ -27,6 +27,10 @@ dependencies {
 	
 }
 
+loom {
+    accessWidenerPath = file("src/main/resources/dedicatedpower.accesswidener")
+}
+
 processResources {
 	inputs.property "version", project.version
 

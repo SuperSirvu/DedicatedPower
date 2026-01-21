@@ -1,14 +1,15 @@
 {
-	"required": true,
-	"package": "net.supersirvu.mixin",
-	"compatibilityLevel": "JAVA_21",
-	"mixins": [
-      "ServerGuiFixes"
-	],
-	"injectors": {
-		"defaultRequire": 1
-	},
-	"overwrites": {
-		"requireAnnotations": true
+  "required": true,
+  "package": "net.supersirvu.mixin",
+  "compatibilityLevel": "JAVA_21",
+  "mixins": [
+    "ServerGuiFixes$AlwaysShowGui",
+    "ServerGuiFixes$DedicatedServerGuiMixin"
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  },
+  "overwrites": {
+    "requireAnnotations": true
 	}
 }
