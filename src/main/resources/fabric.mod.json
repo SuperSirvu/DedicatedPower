@@ -3,9 +3,9 @@
 	"id": "dedicatedpower",
 	"version": "${version}",
 	"name": "DedicatedPower",
-	"description": "This is an example description! Tell everyone what your mod is about!",
+	"description": "Gives the dedicated server interface a new look for easier server management and more power over your server.",
 	"authors": [
-		"Me!"
+		"SuperSirvu"
 	],
 	"contact": {
 		"homepage": "https://fabricmc.net/",
