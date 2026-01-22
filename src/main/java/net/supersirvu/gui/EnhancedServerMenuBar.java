@@ -185,7 +185,7 @@ public class EnhancedServerMenuBar extends JMenuBar {
         addButton.addActionListener(e -> {
             String player = JOptionPane.showInputDialog(dialog, "Enter player name:", "Add to Whitelist", JOptionPane.QUESTION_MESSAGE);
             if (player != null && !player.trim().isEmpty()) {
-                server.getCommandManager().executeWithPrefix(server.getCommandSource(), "whitelist add " + player);
+                server.getCommandManager().parseAndExecute(server.getCommandSource(), "whitelist add " + player);
                 listModel.addElement(player);
             }
         });
@@ -193,12 +193,12 @@ public class EnhancedServerMenuBar extends JMenuBar {
         removeButton.addActionListener(e -> {
             String selected = whitelistList.getSelectedValue();
             if (selected != null) {
-                server.getCommandManager().executeWithPrefix(server.getCommandSource(), "whitelist remove " + selected);
+                server.getCommandManager().parseAndExecute(server.getCommandSource(), "whitelist remove " + selected);
                 listModel.removeElement(selected);
             }
         });
 
-        enabledCheckbox.addActionListener(e -> server.getCommandManager().executeWithPrefix(server.getCommandSource(),
+        enabledCheckbox.addActionListener(e -> server.getCommandManager().parseAndExecute(server.getCommandSource(),
                 enabledCheckbox.isSelected() ? "whitelist on" : "whitelist off"));
 
         closeButton.addActionListener(e -> dialog.dispose());
@@ -227,7 +227,7 @@ public class EnhancedServerMenuBar extends JMenuBar {
 
     private void saveAllWorlds() {
         try {
-            server.getCommandManager().executeWithPrefix(server.getCommandSource(), "save-all");
+            server.getCommandManager().parseAndExecute(server.getCommandSource(), "save-all");
             JOptionPane.showMessageDialog(parentFrame, "All worlds saved successfully!",
                     "Success", JOptionPane.INFORMATION_MESSAGE);
         } catch (Exception e) {
@@ -259,7 +259,7 @@ public class EnhancedServerMenuBar extends JMenuBar {
             new Thread(() -> {
                 try {
                     // Save all first
-                    server.getCommandManager().executeWithPrefix(server.getCommandSource(), "save-all flush");
+                    server.getCommandManager().parseAndExecute(server.getCommandSource(), "save-all flush");
                     Thread.sleep(2000); // Wait for save to complete
 
                     // Create zip
@@ -623,7 +623,7 @@ public class EnhancedServerMenuBar extends JMenuBar {
 
     private void executeGamerule(String rule, String value) {
         try {
-            server.getCommandManager().executeWithPrefix(
+            server.getCommandManager().parseAndExecute(
                     server.getCommandSource(),
                     "gamerule " + rule + " " + value
             );
@@ -697,9 +697,9 @@ public class EnhancedServerMenuBar extends JMenuBar {
                 double centerZ = Double.parseDouble(centerZField.getText());
                 double size = Double.parseDouble(sizeField.getText());
 
-                server.getCommandManager().executeWithPrefix(server.getCommandSource(),
+                server.getCommandManager().parseAndExecute(server.getCommandSource(),
                         String.format("worldborder center %f %f", centerX, centerZ));
-                server.getCommandManager().executeWithPrefix(server.getCommandSource(),
+                server.getCommandManager().parseAndExecute(server.getCommandSource(),
                         String.format("worldborder set %f", size));
 
                 JOptionPane.showMessageDialog(dialog, "World border updated!", "Success", JOptionPane.INFORMATION_MESSAGE);
@@ -720,7 +720,7 @@ public class EnhancedServerMenuBar extends JMenuBar {
     private void addTimeOption(JMenu menu, String name, long time) {
         JMenuItem item = new JMenuItem(name);
         item.addActionListener(e -> {
-            server.getCommandManager().executeWithPrefix(server.getCommandSource(), "time set " + time);
+            server.getCommandManager().parseAndExecute(server.getCommandSource(), "time set " + time);
         });
         menu.add(item);
     }
@@ -730,7 +730,7 @@ public class EnhancedServerMenuBar extends JMenuBar {
         if (input != null) {
             try {
                 long time = Long.parseLong(input);
-                server.getCommandManager().executeWithPrefix(server.getCommandSource(), "time set " + time);
+                server.getCommandManager().parseAndExecute(server.getCommandSource(), "time set " + time);
             } catch (NumberFormatException e) {
                 JOptionPane.showMessageDialog(parentFrame, "Invalid time value!", "Error", JOptionPane.ERROR_MESSAGE);
             }
@@ -740,7 +740,7 @@ public class EnhancedServerMenuBar extends JMenuBar {
     private void addWeatherOption(JMenu menu, String name, String weather) {
         JMenuItem item = new JMenuItem(name);
         item.addActionListener(e -> {
-            server.getCommandManager().executeWithPrefix(server.getCommandSource(), "weather " + weather);
+            server.getCommandManager().parseAndExecute(server.getCommandSource(), "weather " + weather);
         });
         menu.add(item);
     }
@@ -755,7 +755,7 @@ public class EnhancedServerMenuBar extends JMenuBar {
             if (duration != null) {
                 try {
                     int seconds = Integer.parseInt(duration);
-                    server.getCommandManager().executeWithPrefix(server.getCommandSource(),
+                    server.getCommandManager().parseAndExecute(server.getCommandSource(),
                             "weather " + weather.toLowerCase() + " " + seconds);
                 } catch (NumberFormatException e) {
                     JOptionPane.showMessageDialog(parentFrame, "Invalid duration!", "Error", JOptionPane.ERROR_MESSAGE);
@@ -770,13 +770,13 @@ public class EnhancedServerMenuBar extends JMenuBar {
                 "Confirm", JOptionPane.YES_NO_OPTION);
 
         if (confirm == JOptionPane.YES_OPTION) {
-            server.getCommandManager().executeWithPrefix(server.getCommandSource(), "reload");
+            server.getCommandManager().parseAndExecute(server.getCommandSource(), "reload");
             JOptionPane.showMessageDialog(parentFrame, "Chunks reloaded!", "Success", JOptionPane.INFORMATION_MESSAGE);
         }
     }
 
     private void forceSave() {
-        server.getCommandManager().executeWithPrefix(server.getCommandSource(), "save-all flush");
+        server.getCommandManager().parseAndExecute(server.getCommandSource(), "save-all flush");
         JOptionPane.showMessageDialog(parentFrame, "Force save completed!", "Success", JOptionPane.INFORMATION_MESSAGE);
     }
 
@@ -799,7 +799,7 @@ public class EnhancedServerMenuBar extends JMenuBar {
 
                 new Thread(() -> {
                     try {
-                        server.getCommandManager().executeWithPrefix(server.getCommandSource(), "save-all flush");
+                        server.getCommandManager().parseAndExecute(server.getCommandSource(), "save-all flush");
                         Thread.sleep(2000);
 
                         // Backup specific world folder
@@ -912,7 +912,7 @@ public class EnhancedServerMenuBar extends JMenuBar {
                     default -> "kill @e[type=" + type + "]";
                 };
 
-                server.getCommandManager().executeWithPrefix(server.getCommandSource(), command);
+                server.getCommandManager().parseAndExecute(server.getCommandSource(), command);
                 JOptionPane.showMessageDialog(parentFrame, "Entities cleared!", "Success", JOptionPane.INFORMATION_MESSAGE);
             }
         });
@@ -930,7 +930,7 @@ public class EnhancedServerMenuBar extends JMenuBar {
             new Thread(() -> {
                 try {
                     // Force save and reload
-                    server.getCommandManager().executeWithPrefix(server.getCommandSource(), "save-all flush");
+                    server.getCommandManager().parseAndExecute(server.getCommandSource(), "save-all flush");
                     Thread.sleep(2000);
                     System.gc();
 
@@ -1143,10 +1143,10 @@ public class EnhancedServerMenuBar extends JMenuBar {
         searchField.addActionListener(e -> {
             String selected = commandList.getSelectedValue();
             if (selected != null) {
-                server.getCommandManager().executeWithPrefix(server.getCommandSource(), selected);
+                server.getCommandManager().parseAndExecute(server.getCommandSource(), selected);
                 dialog.dispose();
             } else if (!searchField.getText().isEmpty()) {
-                server.getCommandManager().executeWithPrefix(server.getCommandSource(), searchField.getText());
+                server.getCommandManager().parseAndExecute(server.getCommandSource(), searchField.getText());
                 dialog.dispose();
             }
         });
@@ -1231,7 +1231,7 @@ public class EnhancedServerMenuBar extends JMenuBar {
         JButton closeButton = new JButton("Close");
 
         reloadButton.addActionListener(e -> {
-            server.getCommandManager().executeWithPrefix(server.getCommandSource(), "reload");
+            server.getCommandManager().parseAndExecute(server.getCommandSource(), "reload");
             JOptionPane.showMessageDialog(dialog, "Datapacks reloaded!", "Success", JOptionPane.INFORMATION_MESSAGE);
         });
 
