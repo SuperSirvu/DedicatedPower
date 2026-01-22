@@ -6,6 +6,7 @@ import com.mojang.authlib.minecraft.MinecraftProfileTextures;
 import net.minecraft.server.BannedPlayerEntry;
 import net.minecraft.server.BannedPlayerList;
 import net.minecraft.server.MinecraftServer;
+import net.minecraft.server.PlayerConfigEntry;
 import net.minecraft.server.network.ServerPlayerEntity;
 import net.minecraft.text.Text;
 import net.minecraft.world.GameMode;
@@ -88,7 +89,7 @@ public class EnhancedPlayerListGui extends JPanel {
         // Periodically check and load missing player heads
         Timer headLoadTimer = new Timer(2000, e -> {
             for (ServerPlayerEntity player : server.getPlayerManager().getPlayerList()) {
-                String uuid = player.getGameProfile().getId().toString();
+                String uuid = player.getGameProfile().id().toString();
                 if (!headCache.containsKey(uuid)) {
                     loadPlayerHead(player.getGameProfile());
                 }
@@ -98,13 +99,13 @@ public class EnhancedPlayerListGui extends JPanel {
     }
 
     private void loadPlayerHead(GameProfile profile) {
-        String uuid = profile.getId().toString();
+        String uuid = profile.id().toString();
 
         CompletableFuture.runAsync(() -> {
             try {
                 // Get skin URL from Mojang session server
                 MinecraftProfileTextures textures =
-                        server.getSessionService().getTextures(profile);
+                        server.getApiServices().sessionService().getTextures(profile);
 
                 if (textures.skin() != null) {
                     MinecraftProfileTexture skinTexture = textures.skin();
@@ -281,7 +282,7 @@ public class EnhancedPlayerListGui extends JPanel {
         List<PlayerInfo> players = new ArrayList<>();
 
         for (ServerPlayerEntity player : server.getPlayerManager().getPlayerList()) {
-            String name = player.getGameProfile().getName();
+            String name = player.getGameProfile().name();
 
             // Apply search filter
             if (!searchFilter.isEmpty() && !name.toLowerCase().contains(searchFilter.toLowerCase())) {
@@ -290,9 +291,10 @@ public class EnhancedPlayerListGui extends JPanel {
 
             PlayerInfo info = new PlayerInfo(
                     player.getGameProfile(),
+                    player.getPlayerConfigEntry(),
                     player.networkHandler.getLatency(),
                     player.interactionManager.getGameMode(),
-                    server.getPlayerManager().isOperator(player.getGameProfile()),
+                    server.getPlayerManager().isOperator(player.getPlayerConfigEntry()),
                     player.getHealth(),
                     player.getHungerManager().getFoodLevel()
             );
@@ -316,7 +318,7 @@ public class EnhancedPlayerListGui extends JPanel {
         kickItem.addActionListener(e -> {
             String reason = JOptionPane.showInputDialog(this, "Kick reason:", "Kick Player", JOptionPane.QUESTION_MESSAGE);
             if (reason != null) {
-                ServerPlayerEntity serverPlayer = server.getPlayerManager().getPlayer(player.profile.getId());
+                ServerPlayerEntity serverPlayer = server.getPlayerManager().getPlayer(player.profile.id());
                 serverPlayer.networkHandler.disconnect(Text.literal(reason));
             }
         });
@@ -326,10 +328,10 @@ public class EnhancedPlayerListGui extends JPanel {
             String reason = JOptionPane.showInputDialog(this, "Ban reason:", "Ban Player", JOptionPane.QUESTION_MESSAGE);
             if (reason != null) {
                 BannedPlayerList bannedPlayerList = server.getPlayerManager().getUserBanList();
-                if (!bannedPlayerList.contains(player.profile)) {
-                    BannedPlayerEntry bannedPlayerEntry = new BannedPlayerEntry(player.profile, null, "SERVER", null, reason);
+                if (!bannedPlayerList.contains(player.configEntry)) {
+                    BannedPlayerEntry bannedPlayerEntry = new BannedPlayerEntry(player.configEntry, null, "SERVER", null, reason);
                     bannedPlayerList.add(bannedPlayerEntry);
-                    ServerPlayerEntity serverPlayerEntity = server.getPlayerManager().getPlayer(player.profile.getId());
+                    ServerPlayerEntity serverPlayerEntity = server.getPlayerManager().getPlayer(player.profile.id());
                     if (serverPlayerEntity != null) {
                         serverPlayerEntity.networkHandler.disconnect(Text.translatable("multiplayer.disconnect.banned"));
                     }
@@ -341,16 +343,16 @@ public class EnhancedPlayerListGui extends JPanel {
         messageItem.addActionListener(e -> {
             String message = JOptionPane.showInputDialog(this, "Message:", "Send Message", JOptionPane.QUESTION_MESSAGE);
             if (message != null) {
-                server.getPlayerManager().getPlayer(player.profile.getId()).sendMessage(Text.literal("SERVER: " + message));
+                server.getPlayerManager().getPlayer(player.profile.id()).sendMessage(Text.literal("SERVER: " + message));
             }
         });
 
         JMenuItem opItem = new JMenuItem(player.isOp ? "Deop Player" : "Op Player");
         opItem.addActionListener(e -> {
             if(player.isOp) {
-                server.getPlayerManager().removeFromOperators(player.profile);
+                server.getPlayerManager().removeFromOperators(player.configEntry);
             } else {
-                server.getPlayerManager().addToOperators(player.profile);
+                server.getPlayerManager().addToOperators(player.configEntry);
             }
         });
 
@@ -366,7 +368,7 @@ public class EnhancedPlayerListGui extends JPanel {
     private void showPlayerDetails(PlayerInfo player) {
         String details = String.format(
                 "Player: %s\n\nPing: %d ms\nGame Mode: %s\nOperator: %s\nHealth: %.1f\nHunger: %d",
-                player.profile.getName(),
+                player.profile.name(),
                 player.ping,
                 player.gameMode.getTranslatableName(),
                 player.isOp ? "Yes" : "No",
@@ -403,7 +405,7 @@ public class EnhancedPlayerListGui extends JPanel {
                         JOptionPane.YES_NO_OPTION);
                 if (confirm == JOptionPane.YES_OPTION) {
                     BannedPlayerList bannedPlayerList = server.getPlayerManager().getUserBanList();
-                    GameProfile player = bannedPlayerList.values().stream().filter(entry -> entry.getKey().getName().equals(selected)).findFirst().orElseThrow().getKey();
+                    PlayerConfigEntry player = bannedPlayerList.values().stream().filter(entry -> entry.getKey().name().equals(selected)).findFirst().orElseThrow().getKey();
                     if (bannedPlayerList.contains(player)) {
                         bannedPlayerList.remove(player);
                     }
@@ -427,14 +429,16 @@ public class EnhancedPlayerListGui extends JPanel {
     // Player info data class
     private static class PlayerInfo {
         final GameProfile profile;
+        final PlayerConfigEntry configEntry;
         final int ping;
         final GameMode gameMode;
         final boolean isOp;
         final float health;
         final int hunger;
 
-        PlayerInfo(GameProfile profile, int ping, GameMode gameMode, boolean isOp, float health, int hunger) {
+        PlayerInfo(GameProfile profile, PlayerConfigEntry configEntry, int ping, GameMode gameMode, boolean isOp, float health, int hunger) {
             this.profile = profile;
+            this.configEntry = configEntry;
             this.ping = ping;
             this.gameMode = gameMode;
             this.isOp = isOp;
@@ -503,7 +507,7 @@ public class EnhancedPlayerListGui extends JPanel {
             }
 
             // Set player head
-            String uuid = player.profile.getId().toString();
+            String uuid = player.profile.id().toString();
             BufferedImage headImage = headCache.get(uuid);
             if (headImage != null) {
                 headLabel.setIcon(new ImageIcon(headImage));
@@ -516,7 +520,7 @@ public class EnhancedPlayerListGui extends JPanel {
             }
 
             // Set name
-            nameLabel.setText(player.profile.getName());
+            nameLabel.setText(player.profile.name());
 
             // Set info (gamemode)
             infoLabel.setText("Mode: " + player.gameMode.getTranslatableName());
@@ -549,7 +553,7 @@ public class EnhancedPlayerListGui extends JPanel {
 
     // Sort modes
     private enum SortMode {
-        NAME("Name", Comparator.comparing(p -> p.profile.getName())),
+        NAME("Name", Comparator.comparing(p -> p.profile.name())),
         PING("Ping", Comparator.comparingInt(p -> p.ping)),
         GAMEMODE("Game Mode", Comparator.comparing(p -> p.gameMode.getTranslatableName().getString()));
 

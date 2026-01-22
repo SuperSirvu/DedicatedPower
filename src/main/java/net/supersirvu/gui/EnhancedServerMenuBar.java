@@ -838,10 +838,10 @@ public class EnhancedServerMenuBar extends JMenuBar {
                         "Hardcore: %s\n" +
                         "Allow Commands: %s",
                 overworld.getSeed(),
-                properties.getSpawnPos().getX(), properties.getSpawnPos().getY(), properties.getSpawnPos().getZ(),
+                properties.getSpawnPoint().getPos().getX(), properties.getSpawnPoint().getPos().getY(), properties.getSpawnPoint().getPos().getZ(),
                 properties.getDifficulty().getName(),
                 properties.isHardcore() ? "Yes" : "No",
-                server.getProperties().enableCommandBlock ? "Yes" : "No"
+                overworld.getGameRules().getBoolean(GameRules.COMMAND_BLOCKS_ENABLED) ? "Yes" : "No"
         );
 
         JTextArea textArea = new JTextArea(info);
