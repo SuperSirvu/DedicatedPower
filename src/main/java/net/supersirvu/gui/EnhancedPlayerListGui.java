@@ -368,7 +368,7 @@ public class EnhancedPlayerListGui extends JPanel {
                 "Player: %s\n\nPing: %d ms\nGame Mode: %s\nOperator: %s\nHealth: %.1f\nHunger: %d",
                 player.profile.getName(),
                 player.ping,
-                player.gameMode.getName(),
+                player.gameMode.getTranslatableName(),
                 player.isOp ? "Yes" : "No",
                 player.health,
                 player.hunger
@@ -519,7 +519,7 @@ public class EnhancedPlayerListGui extends JPanel {
             nameLabel.setText(player.profile.getName());
 
             // Set info (gamemode)
-            infoLabel.setText("Mode: " + player.gameMode.getName());
+            infoLabel.setText("Mode: " + player.gameMode.getTranslatableName());
 
             // Set ping with color coding
             pingLabel.setText(player.ping + " ms");
@@ -551,7 +551,7 @@ public class EnhancedPlayerListGui extends JPanel {
     private enum SortMode {
         NAME("Name", Comparator.comparing(p -> p.profile.getName())),
         PING("Ping", Comparator.comparingInt(p -> p.ping)),
-        GAMEMODE("Game Mode", Comparator.comparing(p -> p.gameMode.getName()));
+        GAMEMODE("Game Mode", Comparator.comparing(p -> p.gameMode.getTranslatableName().getString()));
 
         private final String displayName;
         private final Comparator<PlayerInfo> comparator;

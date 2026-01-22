@@ -68,7 +68,7 @@ public class EnhancedServerMenuBar extends JMenuBar {
         JMenu gameModeMenu = new JMenu("Default Game Mode");
         ButtonGroup gameModeGroup = new ButtonGroup();
         for (GameMode mode : GameMode.values()) {
-            JRadioButtonMenuItem modeItem = new JRadioButtonMenuItem(mode.getName());
+            JRadioButtonMenuItem modeItem = new JRadioButtonMenuItem(mode.getTranslatableName().getString());
             modeItem.setSelected(server.getSaveProperties().getGameMode() == mode);
             modeItem.addActionListener(e -> setDefaultGameMode(mode));
             gameModeGroup.add(modeItem);
@@ -221,7 +221,7 @@ public class EnhancedServerMenuBar extends JMenuBar {
 
     private void setDefaultGameMode(GameMode mode) {
         server.setDefaultGameMode(mode);
-        JOptionPane.showMessageDialog(parentFrame, "Default game mode set to " + mode.getName(),
+        JOptionPane.showMessageDialog(parentFrame, "Default game mode set to " + mode.getTranslatableName(),
                 "Success", JOptionPane.INFORMATION_MESSAGE);
     }
 
