@@ -1,8 +1,8 @@
 package net.supersirvu.gui;
 
-import net.minecraft.client.resource.language.I18n;
 import net.minecraft.server.dedicated.MinecraftDedicatedServer;
 import net.minecraft.server.world.ServerWorld;
+import net.minecraft.text.Text;
 import net.minecraft.world.Difficulty;
 import net.minecraft.world.GameMode;
 import net.minecraft.world.WorldProperties;
@@ -459,14 +459,14 @@ public class EnhancedServerMenuBar extends JMenuBar {
                     boolean currentValue = world.getGameRules().getValue(rule);
 
                     // Create checkbox
-                    JCheckBox checkbox = new JCheckBox(formatGameruleName(I18n.translate(rule.getTranslationKey())), currentValue);
-                    checkbox.setName(I18n.translate(rule.getTranslationKey()));
-                    checkbox.setToolTipText("Game rule: " + I18n.translate(rule.getTranslationKey()));
+                    JCheckBox checkbox = new JCheckBox(formatGameruleName(Text.translatable(rule.getTranslationKey()).getString()), currentValue);
+                    checkbox.setName(Text.translatable(rule.getTranslationKey()).getString());
+                    checkbox.setToolTipText("Game rule: " + Text.translatable(rule.getTranslationKey()));
 
                     panel.add(checkbox, gbc);
                     gbc.gridy++;
 
-                    gameruleComponents.put(I18n.translate(rule.getTranslationKey()), checkbox);
+                    gameruleComponents.put(Text.translatable(rule.getTranslationKey()).getString(), checkbox);
                 }
             }
 
@@ -482,7 +482,7 @@ public class EnhancedServerMenuBar extends JMenuBar {
 
                     // Create row panel
                     JPanel rowPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 0));
-                    JLabel nameLabel = new JLabel(formatGameruleName(I18n.translate(rule.getTranslationKey())) + ":");
+                    JLabel nameLabel = new JLabel(formatGameruleName(Text.translatable(rule.getTranslationKey()).getString()) + ":");
                     nameLabel.setPreferredSize(new Dimension(300, 25));
 
                     // Dynamically extract min/max from the IntegerArgumentType
@@ -490,9 +490,9 @@ public class EnhancedServerMenuBar extends JMenuBar {
                     int max = 1000000;
 
                     JSpinner spinner = new JSpinner(new SpinnerNumberModel(currentValue, min, max, 1));
-                    spinner.setName(I18n.translate(rule.getTranslationKey()));
+                    spinner.setName(Text.translatable(rule.getTranslationKey()).getString());
                     spinner.setPreferredSize(new Dimension(100, 25));
-                    spinner.setToolTipText("Game rule: " + I18n.translate(rule.getTranslationKey()) + " (Min: " + min + ", Max: " + max + ")");
+                    spinner.setToolTipText("Game rule: " + Text.translatable(rule.getTranslationKey()) + " (Min: " + min + ", Max: " + max + ")");
 
                     rowPanel.add(nameLabel);
                     rowPanel.add(spinner);
@@ -500,7 +500,7 @@ public class EnhancedServerMenuBar extends JMenuBar {
                     panel.add(rowPanel, gbc);
                     gbc.gridy++;
 
-                    gameruleComponents.put(I18n.translate(rule.getTranslationKey()), spinner);
+                    gameruleComponents.put(Text.translatable(rule.getTranslationKey()).getString(), spinner);
                 }
             }
         });
@@ -601,12 +601,12 @@ public class EnhancedServerMenuBar extends JMenuBar {
         world.getGameRules().accept(new GameRuleVisitor() {
             @Override
             public void visitBoolean(GameRule<Boolean> rule) {
-                executeGamerule(I18n.translate(rule.getTranslationKey()), String.valueOf(rule.getDefaultValue()));
+                executeGamerule(Text.translatable(rule.getTranslationKey()).getString(), String.valueOf(rule.getDefaultValue()));
             }
 
             @Override
             public void visitInt(GameRule<Integer> rule) {
-                executeGamerule(I18n.translate(rule.getTranslationKey()), String.valueOf(rule.getDefaultValue()));
+                executeGamerule(Text.translatable(rule.getTranslationKey()).getString(), String.valueOf(rule.getDefaultValue()));
             }
         });
     }
