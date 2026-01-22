@@ -1,11 +1,15 @@
 package net.supersirvu.gui;
 
+import net.minecraft.client.resource.language.I18n;
 import net.minecraft.server.dedicated.MinecraftDedicatedServer;
 import net.minecraft.server.world.ServerWorld;
 import net.minecraft.world.Difficulty;
 import net.minecraft.world.GameMode;
-import net.minecraft.world.GameRules;
 import net.minecraft.world.WorldProperties;
+import net.minecraft.world.rule.GameRule;
+import net.minecraft.world.rule.GameRuleCategory;
+import net.minecraft.world.rule.GameRuleVisitor;
+import net.minecraft.world.rule.GameRules;
 
 import javax.swing.*;
 import java.awt.*;
@@ -421,11 +425,11 @@ public class EnhancedServerMenuBar extends JMenuBar {
         JTabbedPane tabbedPane = new JTabbedPane();
 
         // Maps to store components by category
-        Map<GameRules.Category, JPanel> categoryPanels = new java.util.HashMap<>();
-        Map<GameRules.Category, GridBagConstraints> categoryConstraints = new java.util.HashMap<>();
+        Map<GameRuleCategory, JPanel> categoryPanels = new java.util.HashMap<>();
+        Map<GameRuleCategory, GridBagConstraints> categoryConstraints = new java.util.HashMap<>();
 
         // Initialize panels for each category
-        for (GameRules.Category category : GameRules.Category.values()) {
+        for (GameRuleCategory category : GameRuleCategory.CATEGORIES) {
             JPanel panel = new JPanel(new GridBagLayout());
             GridBagConstraints gbc = new GridBagConstraints();
             gbc.gridx = 0;
@@ -443,42 +447,42 @@ public class EnhancedServerMenuBar extends JMenuBar {
         Map<String, JComponent> gameruleComponents = new java.util.HashMap<>();
 
         // Dynamically discover and add all gamerules
-        world.getGameRules().accept(new GameRules.Visitor() {
+        world.getGameRules().accept(new GameRuleVisitor() {
             @Override
-            public void visitBoolean(GameRules.Key<GameRules.BooleanRule> key, GameRules.Type<GameRules.BooleanRule> type) {
-                GameRules.Category category = key.getCategory();
+            public void visitBoolean(GameRule<Boolean> rule) {
+                GameRuleCategory category = rule.getCategory();
                 JPanel panel = categoryPanels.get(category);
                 GridBagConstraints gbc = categoryConstraints.get(category);
 
                 if (panel != null && gbc != null) {
                     // Get current value from the world
-                    boolean currentValue = world.getGameRules().getBoolean(key);
+                    boolean currentValue = world.getGameRules().getValue(rule);
 
                     // Create checkbox
-                    JCheckBox checkbox = new JCheckBox(formatGameruleName(key.getName()), currentValue);
-                    checkbox.setName(key.getName());
-                    checkbox.setToolTipText("Game rule: " + key.getName());
+                    JCheckBox checkbox = new JCheckBox(formatGameruleName(I18n.translate(rule.getTranslationKey())), currentValue);
+                    checkbox.setName(I18n.translate(rule.getTranslationKey()));
+                    checkbox.setToolTipText("Game rule: " + I18n.translate(rule.getTranslationKey()));
 
                     panel.add(checkbox, gbc);
                     gbc.gridy++;
 
-                    gameruleComponents.put(key.getName(), checkbox);
+                    gameruleComponents.put(I18n.translate(rule.getTranslationKey()), checkbox);
                 }
             }
 
             @Override
-            public void visitInt(GameRules.Key<GameRules.IntRule> key, GameRules.Type<GameRules.IntRule> type) {
-                GameRules.Category category = key.getCategory();
+            public void visitInt(GameRule<Integer> rule) {
+                GameRuleCategory category = rule.getCategory();
                 JPanel panel = categoryPanels.get(category);
                 GridBagConstraints gbc = categoryConstraints.get(category);
 
                 if (panel != null && gbc != null) {
                     // Get current value from the world
-                    int currentValue = world.getGameRules().getInt(key);
+                    int currentValue = world.getGameRules().getValue(rule);
 
                     // Create row panel
                     JPanel rowPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 0));
-                    JLabel nameLabel = new JLabel(formatGameruleName(key.getName()) + ":");
+                    JLabel nameLabel = new JLabel(formatGameruleName(I18n.translate(rule.getTranslationKey())) + ":");
                     nameLabel.setPreferredSize(new Dimension(300, 25));
 
                     // Dynamically extract min/max from the IntegerArgumentType
@@ -486,9 +490,9 @@ public class EnhancedServerMenuBar extends JMenuBar {
                     int max = 1000000;
 
                     JSpinner spinner = new JSpinner(new SpinnerNumberModel(currentValue, min, max, 1));
-                    spinner.setName(key.getName());
+                    spinner.setName(I18n.translate(rule.getTranslationKey()));
                     spinner.setPreferredSize(new Dimension(100, 25));
-                    spinner.setToolTipText("Game rule: " + key.getName() + " (Min: " + min + ", Max: " + max + ")");
+                    spinner.setToolTipText("Game rule: " + I18n.translate(rule.getTranslationKey()) + " (Min: " + min + ", Max: " + max + ")");
 
                     rowPanel.add(nameLabel);
                     rowPanel.add(spinner);
@@ -496,13 +500,13 @@ public class EnhancedServerMenuBar extends JMenuBar {
                     panel.add(rowPanel, gbc);
                     gbc.gridy++;
 
-                    gameruleComponents.put(key.getName(), spinner);
+                    gameruleComponents.put(I18n.translate(rule.getTranslationKey()), spinner);
                 }
             }
         });
 
         // Add all category panels to tabbed pane
-        for (GameRules.Category category : GameRules.Category.values()) {
+        for (GameRuleCategory category : GameRuleCategory.CATEGORIES) {
             JPanel panel = categoryPanels.get(category);
             if (panel != null && panel.getComponentCount() > 0) {
                 JScrollPane scrollPane = new JScrollPane(panel);
@@ -571,19 +575,9 @@ public class EnhancedServerMenuBar extends JMenuBar {
         return result.toString();
     }
 
-    private String getCategoryDisplayName(GameRules.Category category) {
-        return switch (category) {
-            case PLAYER -> "Player";
-            case MOBS -> "Mobs";
-            case SPAWNING -> "Spawning";
-            case DROPS -> "Drops";
-            case UPDATES -> "Updates";
-            case CHAT -> "Chat";
-            case MISC -> "Miscellaneous";
-        };
+    private String getCategoryDisplayName(GameRuleCategory category) {
+        return category.getText().getString();
     }
-
-
 
     private void applyGamerules(Map<String, JComponent> components) {
         for (Map.Entry<String, JComponent> entry : components.entrySet()) {
@@ -604,19 +598,15 @@ public class EnhancedServerMenuBar extends JMenuBar {
 
     private void resetGamerulesToDefaults(ServerWorld world) {
         // Reset common gamerules to their defaults using GameRules class knowledge
-        world.getGameRules().accept(new GameRules.Visitor() {
+        world.getGameRules().accept(new GameRuleVisitor() {
             @Override
-            public void visitBoolean(GameRules.Key<GameRules.BooleanRule> key, GameRules.Type<GameRules.BooleanRule> type) {
-                // Create a new default rule to get the default value
-                GameRules.BooleanRule defaultRule = type.createRule();
-                executeGamerule(key.getName(), String.valueOf(defaultRule.get()));
+            public void visitBoolean(GameRule<Boolean> rule) {
+                executeGamerule(I18n.translate(rule.getTranslationKey()), String.valueOf(rule.getDefaultValue()));
             }
 
             @Override
-            public void visitInt(GameRules.Key<GameRules.IntRule> key, GameRules.Type<GameRules.IntRule> type) {
-                // Create a new default rule to get the default value
-                GameRules.IntRule defaultRule = type.createRule();
-                executeGamerule(key.getName(), String.valueOf(defaultRule.get()));
+            public void visitInt(GameRule<Integer> rule) {
+                executeGamerule(I18n.translate(rule.getTranslationKey()), String.valueOf(rule.getDefaultValue()));
             }
         });
     }
@@ -841,7 +831,7 @@ public class EnhancedServerMenuBar extends JMenuBar {
                 properties.getSpawnPoint().getPos().getX(), properties.getSpawnPoint().getPos().getY(), properties.getSpawnPoint().getPos().getZ(),
                 properties.getDifficulty().getName(),
                 properties.isHardcore() ? "Yes" : "No",
-                overworld.getGameRules().getBoolean(GameRules.COMMAND_BLOCKS_ENABLED) ? "Yes" : "No"
+                overworld.getGameRules().getValue(GameRules.COMMAND_BLOCKS_WORK) ? "Yes" : "No"
         );
 
         JTextArea textArea = new JTextArea(info);
