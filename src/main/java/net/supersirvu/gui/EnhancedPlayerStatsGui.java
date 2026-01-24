@@ -1,3 +1,9 @@
+/*
+ * Copyright (c) 2026 SuperSirvu
+ *
+ * Licensed under the MIT License.
+ */
+
 package net.supersirvu.gui;
 
 import net.minecraft.entity.Entity;
