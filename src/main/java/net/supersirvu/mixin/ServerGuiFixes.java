@@ -1,3 +1,9 @@
+/*
+ * Copyright (c) 2026 SuperSirvu
+ *
+ * Licensed under the MIT License.
+ */
+
 package net.supersirvu.mixin;
 
 import com.mojang.logging.LogQueues;
