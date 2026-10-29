@@ -1,0 +1,83 @@
+name: "🚀 Feature Request (English)"
+description: "Have an idea to improve DedicatedPower? Tell us about it."
+title: "[Feature]: "
+labels:
+  - "enhancement"
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ### 💡 DedicatedPower Feature Proposal
+
+        We welcome practical ideas that make dedicated Minecraft server management easier, safer, and more powerful.
+
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Pre-flight checklist
+      description: Please check these points before submitting your proposal.
+      options:
+        - label: I have searched the existing issues and this idea has not already been proposed.
+          required: true
+        - label: This proposal is specifically related to DedicatedPower or its dedicated server workflow.
+          required: true
+        - label: I have separated this proposal from unrelated bugs or general Minecraft support questions.
+          required: true
+
+  - type: dropdown
+    id: category
+    attributes:
+      label: Feature category
+      description: Which area would this proposal improve?
+      options:
+        - Dedicated server GUI
+        - Console, logs, or command autocomplete
+        - Player list or player administration
+        - Performance monitoring or statistics
+        - Server, world, or game rule management
+        - Backups, exports, or server maintenance
+        - Minecraft 26.2 or future-version compatibility
+        - Accessibility or usability
+        - Developer tooling or documentation
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem would this solve?
+      description: Explain the current limitation, workflow problem, or use case behind your proposal.
+      placeholder: "When managing a dedicated server, it is difficult to ..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What would you like to see?
+      description: Describe the feature in detail, including how it should work from a user's perspective.
+      placeholder: "I would like DedicatedPower to ..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Describe any alternative solution, workaround, command, or existing mod feature you have considered.
+      placeholder: "I have considered ..."
+
+  - type: textarea
+    id: implementation
+    attributes:
+      label: Implementation ideas
+      description: If you have technical ideas, mention relevant Minecraft, Fabric, Swing, mixin, or API details. This section is optional.
+      placeholder: "A possible implementation could use ..."
+
+  - type: textarea
+    id: mockups
+    attributes:
+      label: Mockups, examples, or extra context
+      description: Drag and drop screenshots, sketches, links, command examples, or other supporting material here.
+      placeholder: "Example layout, screenshot, or reference: ..."

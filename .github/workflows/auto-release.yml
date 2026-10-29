@@ -1,0 +1,237 @@
+# Publishes one release from main, carrying one jar per supported Minecraft
+# branch.
+#
+# The version comes from version.txt on main, which holds
+# <minecraft>-<mod version> (26.3-1.3.2). The tag and the release title are the
+# mod version only (1.3.2). The Minecraft version appears in the jar file name
+# (dedicatedpower-26.3-1.3.2.jar), so the download page still says which build
+# belongs to which Minecraft version.
+#
+# A push releases only when the commit message starts with "v". The version
+# branches (mc-26.1, mc-26.2, mc-26.3) never release: they run build-jar.yml on
+# every push, and this workflow builds each of them through that same reusable
+# workflow.
+
+name: Auto Release
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Mod version to release (e.g. 1.3.2). Leave empty to use version.txt.'
+        required: false
+        default: ''
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  prepare:
+    name: Resolve release version
+    if: github.event_name == 'workflow_dispatch' || startsWith(github.event.head_commit.message, 'v')
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.release.outputs.version }}
+      tag: ${{ steps.release.outputs.tag }}
+      name: ${{ steps.release.outputs.name }}
+      channel: ${{ steps.release.outputs.channel }}
+      prerelease: ${{ steps.release.outputs.prerelease }}
+      branches: ${{ steps.release.outputs.branches }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Read the release version
+        id: release
+        shell: bash
+        env:
+          VERSION_INPUT: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+
+          # version.txt holds <minecraft>-<mod version>, for example
+          # 26.3-1.3.2. The tag and the title use the part after the first
+          # hyphen, so every Minecraft branch of one release shares the same
+          # mod version. A manual dispatch may override that mod version.
+          FILE_VERSION="$(tr -d '[:space:]' < version.txt)"
+          VERSION="${VERSION_INPUT:-${FILE_VERSION#*-}}"
+
+          if [[ ! "$VERSION" =~ ^[0-9]+([.][0-9]+)*(-[A-Za-z0-9]+([.][0-9]+)*)?$ ]]; then
+            echo "Invalid release version: ${VERSION}" >&2
+            echo "version.txt must look like 26.3-1.3.2; the mod part may be 1.3.2, 1.3.2-beta or 1.3.2-rc1." >&2
+            exit 1
+          fi
+
+          if [[ "$VERSION" =~ ^(.+)-(beta|alpha|rc)([.][0-9]+)?$ ]]; then
+            CHANNEL="${BASH_REMATCH[2]}"
+            PRERELEASE=true
+          else
+            CHANNEL="stable"
+            PRERELEASE=false
+          fi
+
+          # The tag and the title are the mod version only. The Minecraft
+          # target stays in the jar file name.
+          TAG="${VERSION}"
+          RELEASE_NAME="DedicatedPower ${VERSION}"
+
+          # Every Minecraft branch whose jar the release carries. Add a branch
+          # here when a new Minecraft line is added, and keep build-jar.yml on
+          # that branch so it can be built.
+          BRANCHES='["mc-26.1","mc-26.2","mc-26.3"]'
+
+          {
+            echo "version=${VERSION}"
+            echo "tag=${TAG}"
+            echo "name=${RELEASE_NAME}"
+            echo "channel=${CHANNEL}"
+            echo "prerelease=${PRERELEASE}"
+            echo "branches=${BRANCHES}"
+          } >> "$GITHUB_OUTPUT"
+
+          echo "Version: ${VERSION}"
+          echo "Channel: ${CHANNEL}"
+          echo "Prerelease: ${PRERELEASE}"
+          echo "Tag: ${TAG}"
+          echo "Branches: ${BRANCHES}"
+
+  build:
+    name: Build ${{ matrix.branch }}
+    needs: prepare
+    strategy:
+      # One failing branch must not stop the other jars from being released.
+      fail-fast: false
+      matrix:
+        branch: ${{ fromJson(needs.prepare.outputs.branches) }}
+    uses: ./.github/workflows/build-jar.yml
+    with:
+      ref: ${{ matrix.branch }}
+
+  release:
+    name: Publish release
+    needs: [prepare, build]
+    if: always() && needs.prepare.result == 'success'
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download every branch jar
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          pattern: dedicatedpower-*
+          merge-multiple: true
+
+      - name: Check the collected jars
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+
+          JARS=(dist/*.jar)
+          if [[ ${#JARS[@]} -eq 0 ]]; then
+            echo "No branch produced a jar, nothing to publish." >&2
+            exit 1
+          fi
+          printf 'Publishing %d jar(s):\n' "${#JARS[@]}"
+          printf ' - %s\n' "${JARS[@]}"
+
+      - name: List the builds
+        id: builds
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+
+          # One table row per jar, ordered by Minecraft version, so the release
+          # page says which download belongs to which server instead of only
+          # naming the files.
+          {
+            echo "list<<BUILDS_EOF"
+            echo "| Minecraft | Jar |"
+            echo "| --- | --- |"
+            for jar in $(printf '%s\n' dist/*.jar | sort -V); do
+              name="$(basename "$jar")"
+              if [[ "$name" =~ ^dedicatedpower-([0-9]+([.][0-9]+)*)-.*[.]jar$ ]]; then
+                echo "| ${BASH_REMATCH[1]} | \`${name}\` |"
+              else
+                echo "| unknown | \`${name}\` |"
+              fi
+            done
+            echo "BUILDS_EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Extract changelog section
+        id: changelog
+        shell: bash
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          set -euo pipefail
+
+          # Grab the Keep a Changelog section for this version (## [<version>] ...)
+          if [[ ! -f CHANGELOG.md ]]; then
+            SECTION=""
+          else
+            SECTION="$(awk -v v="$VERSION" '
+              index($0, "## [" v "]") == 1 { found = 1; print; next }
+              found && /^## / { exit }
+              found { print }
+            ' CHANGELOG.md)"
+          fi
+
+          if [[ -z "$SECTION" ]]; then
+            SECTION="*No changelog entry found for version ${VERSION}.*"
+          fi
+
+          # EOF-delimited output so multiline content survives workflow outputs
+          {
+            echo "section<<CHANGELOG_EOF"
+            echo "$SECTION"
+            echo "CHANGELOG_EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Check for an existing release tag
+        env:
+          RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
+        run: |
+          set -euo pipefail
+
+          if git ls-remote --exit-code --refs origin "refs/tags/${RELEASE_TAG}" >/dev/null 2>&1; then
+            echo "A release tag named ${RELEASE_TAG} already exists. Bump version.txt before the next release." >&2
+            exit 1
+          fi
+
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.prepare.outputs.tag }}
+          name: ${{ needs.prepare.outputs.name }}
+          target_commitish: ${{ github.sha }}
+          prerelease: ${{ needs.prepare.outputs.prerelease }}
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+          body: |
+            ## DedicatedPower ${{ needs.prepare.outputs.version }}
+
+            **Release channel:** `${{ needs.prepare.outputs.channel }}`
+
+            **Download**
+
+            ${{ steps.builds.outputs.list }}
+
+            Pick the jar that matches your server: install Fabric Loader and the Fabric API for that Minecraft version, then put the jar in the server `mods` folder.
+
+            ${{ steps.changelog.outputs.section }}
+
+            ---
+
+            This release was built automatically from commit `${{ github.sha }}` on `main`.
+          files: dist/*.jar
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
