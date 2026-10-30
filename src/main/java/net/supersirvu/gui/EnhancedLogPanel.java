@@ -11,10 +11,15 @@ import com.mojang.brigadier.ParseResults;
 import com.mojang.brigadier.StringReader;
 import com.mojang.brigadier.suggestion.Suggestion;
 import com.mojang.brigadier.suggestion.Suggestions;
-import net.minecraft.server.command.ServerCommandSource;
-import net.minecraft.server.dedicated.MinecraftDedicatedServer;
+import net.minecraft.commands.CommandSourceStack;
+import net.minecraft.core.Registry;
+import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.resources.Identifier;
+import net.minecraft.server.dedicated.DedicatedServer;
 
 import javax.swing.*;
+import javax.swing.event.CaretEvent;
+import javax.swing.event.CaretListener;
 import javax.swing.event.DocumentEvent;
 import javax.swing.event.DocumentListener;
 import javax.swing.text.BadLocationException;
@@ -26,29 +31,38 @@ import java.awt.event.KeyAdapter;
 import java.awt.event.KeyEvent;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
+import java.awt.datatransfer.StringSelection;
 import java.io.FileWriter;
 import java.io.IOException;
+import java.net.URI;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 import java.text.SimpleDateFormat;
 import java.util.*;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 
-public class EnhancedLogPanel extends JPanel {
-    private final MinecraftDedicatedServer server;
+public class EnhancedLogPanel extends JPanel implements ThemeManager.ThemeListener {
+    private final DedicatedServer server;
 
     // Components
     private final JTextPane logTextPane;
     private final JTextField commandInput;
     private final JScrollPane logScrollPane;
     private final StyledDocument logDocument;
+    private boolean followLogBottom = true;
+    private boolean updatingLogDisplay;
+    private boolean autoScrollPending;
+    private boolean programmaticScroll;
+    private long scrollGeneration;
 
     // Command suggestion
     private JWindow suggestionWindow;
     private DefaultListModel<SuggestionItem> suggestionModel;
     private JList<SuggestionItem> suggestionList;
     private CompletableFuture<Suggestions> pendingSuggestions;
-    private Suggestions currentSuggestions;
-    private CommandDocumentListener documentListener;
+    private long suggestionGeneration;
+    private boolean suggestionsSuppressed;
 
     // Command history
     private final List<String> commandHistory = new ArrayList<>();
@@ -71,34 +85,62 @@ public class EnhancedLogPanel extends JPanel {
     private JPanel controlPanel;
     private JTextField searchField;
 
-    public EnhancedLogPanel(MinecraftDedicatedServer server) {
+    public EnhancedLogPanel(DedicatedServer server) {
         this.server = server;
 
+        ThemeManager themeManager = ThemeManager.getInstance();
+        themeManager.addListener(this);
+
         setLayout(new BorderLayout());
-        setBackground(new Color(240, 240, 240));
+        setBackground(themeManager.getPanelBackground());
 
         // Create log display FIRST (before initializing styles)
         logTextPane = new JTextPane();
         logTextPane.setEditable(false);
         logTextPane.setFont(new Font("Monospaced", Font.PLAIN, 12));
-        logTextPane.setBackground(Color.WHITE);
+        logTextPane.setBackground(themeManager.getInputBackground());
+        logTextPane.setForeground(themeManager.getForeground());
         logDocument = logTextPane.getStyledDocument();
+        installLogContextMenu();
 
         // NOW initialize styles (after logTextPane is created)
         initializeStyles();
 
         logScrollPane = new JScrollPane(logTextPane);
         logScrollPane.setVerticalScrollBarPolicy(JScrollPane.VERTICAL_SCROLLBAR_ALWAYS);
+        JScrollBar verticalScrollBar = logScrollPane.getVerticalScrollBar();
+        verticalScrollBar.addMouseListener(new MouseAdapter() {
+            @Override
+            public void mousePressed(MouseEvent event) {
+                if (!programmaticScroll) {
+                    autoScrollPending = false;
+                    scrollGeneration++;
+                    updateFollowLogBottom();
+                }
+            }
+        });
+        logScrollPane.addMouseWheelListener(event -> {
+            if (!programmaticScroll) {
+                autoScrollPending = false;
+                scrollGeneration++;
+                SwingUtilities.invokeLater(EnhancedLogPanel.this::updateFollowLogBottom);
+            }
+        });
+        verticalScrollBar.addAdjustmentListener(event -> {
+            if (!programmaticScroll && !autoScrollPending) {
+                updateFollowLogBottom();
+            }
+        });
 
         // Create command input
         commandInput = new JTextField();
         commandInput.setFont(new Font("Monospaced", Font.PLAIN, 12));
+        commandInput.setBackground(themeManager.getInputBackground());
+        commandInput.setForeground(themeManager.getForeground());
         commandInput.addActionListener(e -> executeCommand());
         commandInput.addKeyListener(new CommandInputKeyListener());
-
-        // Create and store document listener reference
-        documentListener = new CommandDocumentListener();
-        commandInput.getDocument().addDocumentListener(documentListener);
+        commandInput.addCaretListener(new CommandCaretListener());
+        commandInput.getDocument().addDocumentListener(new CommandDocumentListener());
 
         // Disable TAB focus traversal so TAB can be used for completion
         commandInput.setFocusTraversalKeysEnabled(false);
@@ -113,6 +155,92 @@ public class EnhancedLogPanel extends JPanel {
 
         // Initialize suggestion window
         initializeSuggestionWindow();
+    }
+
+    private void installLogContextMenu() {
+        JPopupMenu contextMenu = new JPopupMenu();
+        JMenuItem copyItem = new JMenuItem("Copy");
+        JMenuItem searchItem = new JMenuItem("Search in the web");
+
+        copyItem.addActionListener(event -> copySelectedLogText());
+        searchItem.addActionListener(event -> searchSelectedLogText());
+        contextMenu.add(copyItem);
+        contextMenu.add(searchItem);
+        contextMenu.putClientProperty("dedicatedpower.copyItem", copyItem);
+        contextMenu.putClientProperty("dedicatedpower.searchItem", searchItem);
+
+        logTextPane.addMouseListener(new MouseAdapter() {
+            @Override
+            public void mousePressed(MouseEvent event) {
+                showLogContextMenu(event, contextMenu);
+            }
+
+            @Override
+            public void mouseReleased(MouseEvent event) {
+                showLogContextMenu(event, contextMenu);
+            }
+        });
+    }
+
+    private void showLogContextMenu(MouseEvent event, JPopupMenu contextMenu) {
+        if (!event.isPopupTrigger()) {
+            return;
+        }
+
+        String selectedText = logTextPane.getSelectedText();
+        boolean hasSelection = selectedText != null && !selectedText.isBlank();
+        ((JMenuItem) contextMenu.getClientProperty("dedicatedpower.copyItem")).setEnabled(hasSelection);
+        ((JMenuItem) contextMenu.getClientProperty("dedicatedpower.searchItem")).setEnabled(hasSelection);
+
+        ThemeManager.getInstance().applyComponentTheme(contextMenu);
+        contextMenu.show(logTextPane, event.getX(), event.getY());
+    }
+
+    private String getSelectedLogText() {
+        String selectedText = logTextPane.getSelectedText();
+        return selectedText == null ? "" : selectedText;
+    }
+
+    private void copySelectedLogText() {
+        String selectedText = getSelectedLogText();
+        if (selectedText.isEmpty()) {
+            return;
+        }
+        try {
+            Toolkit.getDefaultToolkit().getSystemClipboard()
+                    .setContents(new StringSelection(selectedText), null);
+        } catch (IllegalStateException error) {
+            JOptionPane.showMessageDialog(this,
+                    "The system clipboard is currently unavailable.",
+                    "Copy", JOptionPane.WARNING_MESSAGE);
+        }
+    }
+
+    private void searchSelectedLogText() {
+        String selectedText = getSelectedLogText().trim();
+        if (selectedText.isEmpty()) {
+            return;
+        }
+
+        if (!Desktop.isDesktopSupported()) {
+            JOptionPane.showMessageDialog(this,
+                    "Opening a web browser is not supported on this system.",
+                    "Search in the web", JOptionPane.WARNING_MESSAGE);
+            return;
+        }
+
+        try {
+            Desktop desktop = Desktop.getDesktop();
+            if (!desktop.isSupported(Desktop.Action.BROWSE)) {
+                throw new UnsupportedOperationException("Browser opening is not supported");
+            }
+            String query = URLEncoder.encode(selectedText, StandardCharsets.UTF_8);
+            desktop.browse(URI.create("https://www.google.com/search?q=" + query));
+        } catch (Exception error) {
+            JOptionPane.showMessageDialog(this,
+                    "Could not open the web browser: " + error.getMessage(),
+                    "Search in the web", JOptionPane.ERROR_MESSAGE);
+        }
     }
 
     public void processLogMessage(String message) {
@@ -138,16 +266,17 @@ public class EnhancedLogPanel extends JPanel {
 
     private void initializeStyles() {
         // Log level styles
-        logStyles.put(LogLevel.INFO, createStyle(new Color(52, 152, 219), false));
-        logStyles.put(LogLevel.WARN, createStyle(new Color(243, 156, 18), false));
-        logStyles.put(LogLevel.ERROR, createStyle(new Color(231, 76, 60), true));
-        logStyles.put(LogLevel.DEBUG, createStyle(new Color(149, 165, 166), false));
-        logStyles.put(LogLevel.CHAT, createStyle(new Color(46, 204, 113), false));
+        ThemeManager themeManager = ThemeManager.getInstance();
+        logStyles.put(LogLevel.INFO, createStyle(themeManager.getLogColor(LogLevel.INFO), false));
+        logStyles.put(LogLevel.WARN, createStyle(themeManager.getLogColor(LogLevel.WARN), false));
+        logStyles.put(LogLevel.ERROR, createStyle(themeManager.getLogColor(LogLevel.ERROR), true));
+        logStyles.put(LogLevel.DEBUG, createStyle(themeManager.getLogColor(LogLevel.DEBUG), false));
+        logStyles.put(LogLevel.CHAT, createStyle(themeManager.getLogColor(LogLevel.CHAT), false));
 
         // Command syntax styles
-        commandStyle = createStyle(new Color(52, 152, 219), true);
+        commandStyle = createStyle(themeManager.getLogColor(LogLevel.INFO), true);
         argumentStyle = createStyle(new Color(155, 89, 182), false);
-        errorStyle = createStyle(new Color(231, 76, 60), false);
+        errorStyle = createStyle(themeManager.getLogColor(LogLevel.ERROR), false);
     }
 
     private Style createStyle(Color color, boolean bold) {
@@ -160,7 +289,7 @@ public class EnhancedLogPanel extends JPanel {
     private void createControlPanel() {
         controlPanel = new JPanel(new GridBagLayout());
         controlPanel.setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
-        controlPanel.setBackground(new Color(250, 250, 250));
+        controlPanel.setBackground(ThemeManager.getInstance().getSurfaceBackground());
 
         GridBagConstraints gbc = new GridBagConstraints();
         gbc.fill = GridBagConstraints.HORIZONTAL;
@@ -260,8 +389,9 @@ public class EnhancedLogPanel extends JPanel {
         suggestionModel = new DefaultListModel<>();
         suggestionList = new JList<>(suggestionModel);
         suggestionList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
-        suggestionList.setBackground(Color.WHITE);
-        suggestionList.setBorder(BorderFactory.createLineBorder(Color.GRAY));
+        suggestionList.setBackground(ThemeManager.getInstance().getInputBackground());
+        suggestionList.setForeground(ThemeManager.getInstance().getForeground());
+        suggestionList.setBorder(BorderFactory.createLineBorder(ThemeManager.getInstance().getBorderColor()));
         suggestionList.setFont(new Font("Monospaced", Font.PLAIN, 11));
 
         suggestionList.addMouseListener(new MouseAdapter() {
@@ -280,12 +410,12 @@ public class EnhancedLogPanel extends JPanel {
     }
 
     public void appendLog(String message, LogLevel level) {
-        // Store the log entry
         LogEntry entry = new LogEntry(message, level);
-        allLogEntries.add(entry);
 
-        // Display if it passes filters
+        // Keep storage and rendering on the EDT. This prevents a theme refresh
+        // from racing with a queued log update and displaying an entry twice.
         SwingUtilities.invokeLater(() -> {
+            allLogEntries.add(entry);
             if (shouldDisplayEntry(entry)) {
                 displayLogEntry(entry);
             }
@@ -303,6 +433,11 @@ public class EnhancedLogPanel extends JPanel {
     }
 
     private void displayLogEntry(LogEntry entry) {
+        boolean shouldFollow = followLogBottom;
+        if (shouldFollow) {
+            autoScrollPending = true;
+        }
+        updatingLogDisplay = true;
         try {
             // Add log level tag
             String levelTag = "[" + (entry.level == LogLevel.CHAT ? "CHAT" : "SERVER LOG") + "] ";
@@ -312,6 +447,12 @@ public class EnhancedLogPanel extends JPanel {
             logDocument.insertString(logDocument.getLength(), entry.message + "\n", logStyles.get(entry.level));
         } catch (BadLocationException e) {
             e.printStackTrace();
+        } finally {
+            updatingLogDisplay = false;
+        }
+        if (shouldFollow) {
+            followLogBottom = true;
+            scrollLogToBottom();
         }
     }
 
@@ -327,43 +468,59 @@ public class EnhancedLogPanel extends JPanel {
         appendLog("> " + command, LogLevel.INFO);
 
         // Execute command
-        server.enqueueCommand(command, server.getCommandSource());
+        server.handleConsoleInput(command, server.createCommandSourceStack());
 
         // Clear input
         commandInput.setText("");
+        suggestionGeneration++;
         hideSuggestions();
     }
 
     private void updateSuggestions() {
+        long generation = ++suggestionGeneration;
         String text = commandInput.getText();
         if (text.isEmpty()) {
             hideSuggestions();
             return;
         }
 
-        // Validate command syntax
-        validateCommand(text);
+        // A leading slash is accepted by the console but is not part of the
+        // command syntax, so suggestions are computed on the text after it and
+        // every completion range is shifted back by one.
+        int offset = CommandSuggestionUtils.parseOffset(text);
+        String parseText = CommandSuggestionUtils.parseText(text);
+
+        // Validate command syntax after Swing has completed the document change.
+        validateCommand(parseText);
 
         try {
             // Get command dispatcher
-            CommandDispatcher<ServerCommandSource> dispatcher = server.getCommandManager().getDispatcher();
+            CommandDispatcher<CommandSourceStack> dispatcher = server.getCommands().getDispatcher();
 
             // Parse and get suggestions - with bounds checking
-            StringReader reader = new StringReader(text);
-            ParseResults<ServerCommandSource> parse = dispatcher.parse(reader, server.getCommandSource());
+            StringReader reader = new StringReader(parseText);
+            ParseResults<CommandSourceStack> parse = dispatcher.parse(reader, server.createCommandSourceStack());
 
-            // Ensure cursor position is within bounds
-            int cursorPos = Math.min(commandInput.getCaretPosition(), text.length());
+            // Capture the caret together with the text. A completion range is
+            // valid only if neither the text nor the caret moved while Brigadier
+            // calculated the asynchronous result.
+            int cursorPos = cursorPosition(text);
 
             pendingSuggestions = dispatcher.getCompletionSuggestions(parse, cursorPos);
             pendingSuggestions.thenAccept(suggestions -> {
                 SwingUtilities.invokeLater(() -> {
+                    // Ignore completions calculated for an older text/caret state.
+                    // They must never overwrite the user's current typing state.
+                    if (generation != suggestionGeneration
+                            || !text.equals(commandInput.getText())
+                            || cursorPos != cursorPosition(text)) {
+                        return;
+                    }
                     suggestionModel.clear();
-                    currentSuggestions = suggestions;
 
                     if (!suggestions.isEmpty()) {
                         for (Suggestion suggestion : suggestions.getList()) {
-                            suggestionModel.addElement(new SuggestionItem(suggestion));
+                            suggestionModel.addElement(new SuggestionItem(suggestion, offset));
                         }
 
                         if (suggestionModel.size() > 0) {
@@ -376,8 +533,15 @@ public class EnhancedLogPanel extends JPanel {
                     }
                 });
             }).exceptionally(throwable -> {
-                // Silently handle suggestion errors
-                SwingUtilities.invokeLater(() -> hideSuggestions());
+                // A failed request may also be stale; do not hide a popup created
+                // for newer input.
+                SwingUtilities.invokeLater(() -> {
+                    if (generation == suggestionGeneration
+                            && text.equals(commandInput.getText())
+                            && cursorPosition(text) == cursorPos) {
+                        hideSuggestions();
+                    }
+                });
                 return null;
             });
         } catch (Exception e) {
@@ -388,28 +552,73 @@ public class EnhancedLogPanel extends JPanel {
 
     private void validateCommand(String command) {
         // Simple validation - check if command exists
-        CommandDispatcher<ServerCommandSource> dispatcher = server.getCommandManager().getDispatcher();
+        CommandDispatcher<CommandSourceStack> dispatcher = server.getCommands().getDispatcher();
         StringReader reader = new StringReader(command);
-        ParseResults<ServerCommandSource> parse = dispatcher.parse(reader, server.getCommandSource());
+        ParseResults<CommandSourceStack> parse = dispatcher.parse(reader, server.createCommandSourceStack());
 
-        // Highlight syntax in command input
-        try {
-            StyledDocument doc = (StyledDocument) commandInput.getDocument();
-            Style defaultStyle = doc.addStyle("default", null);
-            StyleConstants.setForeground(defaultStyle, Color.BLACK);
+        // JTextField uses a PlainDocument, so only update its foreground here;
+        // attempting to cast its document to StyledDocument caused a swallowed
+        // ClassCastException on every validation.
+        commandInput.setForeground(parse.getExceptions().isEmpty()
+                ? ThemeManager.getInstance().getForeground()
+                : ThemeManager.getInstance().getLogColor(LogLevel.ERROR));
+    }
 
-            if (!parse.getExceptions().isEmpty()) {
-                // Show error
-                commandInput.setForeground(Color.RED);
-            } else {
-                commandInput.setForeground(Color.BLACK);
+    /** The caret position as Brigadier sees it, i.e. relative to the parse text. */
+    private int cursorPosition(String text) {
+        int offset = CommandSuggestionUtils.parseOffset(text);
+        int length = CommandSuggestionUtils.parseText(text).length();
+        return Math.min(Math.max(0, commandInput.getCaretPosition() - offset), length);
+    }
+
+    /**
+     * Whether a fully qualified id exists in a built-in registry. This is what
+     * lets an argument such as {@code oak_button} complete as
+     * {@code minecraft:oak_button} without touching player names, numbers or
+     * free text.
+     */
+    private static boolean isRegistryId(String id) {
+        Identifier identifier = Identifier.tryParse(id);
+        return identifier != null && KnownIds.contains(identifier.toString());
+    }
+
+    /**
+     * Every id of every built-in registry, collected once on first use so a
+     * keystroke never walks the registries for each of the suggestions.
+     */
+    private static final class KnownIds {
+        private static volatile Set<String> ids;
+
+        private KnownIds() {
+        }
+
+        static boolean contains(String id) {
+            Set<String> current = ids;
+            if (current == null) {
+                try {
+                    Set<String> collected = new HashSet<>();
+                    for (Registry<?> registry : BuiltInRegistries.REGISTRY) {
+                        for (Identifier identifier : registry.keySet()) {
+                            collected.add(identifier.toString());
+                        }
+                    }
+                    current = collected;
+                    ids = collected;
+                } catch (RuntimeException ignored) {
+                    // Registries are not always reachable (for example during
+                    // startup); completion still works, it just stays unqualified.
+                    return false;
+                }
             }
-        } catch (Exception e) {
-            // Ignore styling errors
+            return current.contains(id);
         }
     }
 
     private void showSuggestions() {
+        if (!commandInput.isShowing()) {
+            hideSuggestions();
+            return;
+        }
         Point location = commandInput.getLocationOnScreen();
         suggestionWindow.setLocation(location.x, location.y - suggestionWindow.getHeight());
         suggestionWindow.setVisible(true);
@@ -422,43 +631,32 @@ public class EnhancedLogPanel extends JPanel {
 
     private void applySuggestion() {
         SuggestionItem selected = suggestionList.getSelectedValue();
-        if (selected != null && currentSuggestions != null) {
-            Suggestion suggestion = selected.suggestion;
-
-            // Get the current text
-            String currentText = commandInput.getText();
-
-            // Get the range to replace from the suggestion
-            int start = suggestion.getRange().getStart();
-            int end = suggestion.getRange().getEnd();
-
-            // Ensure bounds are valid
-            if (start < 0 || end > currentText.length() || start > end) {
-                hideSuggestions();
-                return;
-            }
-
-            // Build the new command text
-            String before = currentText.substring(0, start);
-            String after = currentText.substring(end);
-            String newText = before + suggestion.getText() + after;
-
-            // CRITICAL: Remove the document listener before modifying text
-            commandInput.getDocument().removeDocumentListener(documentListener);
-
-            // Set the new text
-            commandInput.setText(newText);
-
-            // Position cursor at the end of the inserted suggestion
-            int newCaretPos = start + suggestion.getText().length();
-            commandInput.setCaretPosition(newCaretPos);
-
-            // Re-add the document listener after modification is complete
-            commandInput.getDocument().addDocumentListener(documentListener);
-
+        if (selected == null) {
             hideSuggestions();
-            commandInput.requestFocus();
+            return;
         }
+
+        String currentText = commandInput.getText();
+        if (selected.start < 0 || selected.end > currentText.length() || selected.start > selected.end) {
+            hideSuggestions();
+            return;
+        }
+
+        // Build the new command text from the token range Brigadier proposed,
+        // shifted back by the leading slash when the console has one.
+        String newText = currentText.substring(0, selected.start)
+                + selected.text
+                + currentText.substring(selected.end);
+
+        // The replacement is intentional, so the document listener must not
+        // reopen the list on the text it just produced.
+        suggestionsSuppressed = true;
+        commandInput.setText(newText);
+        commandInput.setCaretPosition(Math.min(newText.length(), selected.start + selected.text.length()));
+
+        suggestionGeneration++;
+        hideSuggestions();
+        commandInput.requestFocus();
     }
 
     private void showFilterDialog() {
@@ -510,6 +708,30 @@ public class EnhancedLogPanel extends JPanel {
         }
     }
 
+    @Override
+    public void themeChanged(ThemeManager themeManager) {
+        SwingUtilities.invokeLater(() -> {
+            setBackground(themeManager.getPanelBackground());
+            controlPanel.setBackground(themeManager.getSurfaceBackground());
+            logTextPane.setBackground(themeManager.getInputBackground());
+            logTextPane.setForeground(themeManager.getForeground());
+            commandInput.setBackground(themeManager.getInputBackground());
+            commandInput.setForeground(themeManager.getForeground());
+            suggestionList.setBackground(themeManager.getInputBackground());
+            suggestionList.setForeground(themeManager.getForeground());
+            suggestionList.setBorder(BorderFactory.createLineBorder(themeManager.getBorderColor()));
+
+            for (LogLevel level : LogLevel.values()) {
+                StyleConstants.setForeground(logStyles.get(level), themeManager.getLogColor(level));
+            }
+            StyleConstants.setForeground(commandStyle, themeManager.getLogColor(LogLevel.INFO));
+            StyleConstants.setForeground(errorStyle, themeManager.getLogColor(LogLevel.ERROR));
+            refreshLogs();
+            revalidate();
+            repaint();
+        });
+    }
+
     private void refreshLogs() {
         // Clear display
         try {
@@ -518,12 +740,47 @@ public class EnhancedLogPanel extends JPanel {
             e.printStackTrace();
         }
 
-        // Re-display all entries that match current filters
-        for (LogEntry entry : allLogEntries) {
+        // Re-display the stored entries. Storage and refresh both run on the EDT.
+        for (LogEntry entry : new ArrayList<>(allLogEntries)) {
             if (shouldDisplayEntry(entry)) {
                 displayLogEntry(entry);
             }
         }
+        if (followLogBottom) {
+            scrollLogToBottom();
+        }
+    }
+
+    private void updateFollowLogBottom() {
+        if (updatingLogDisplay || autoScrollPending || programmaticScroll) {
+            return;
+        }
+        BoundedRangeModel model = logScrollPane.getVerticalScrollBar().getModel();
+        int distanceFromBottom = model.getMaximum() - model.getValue() - model.getExtent();
+        followLogBottom = distanceFromBottom <= 4;
+    }
+
+    private void scrollLogToBottom() {
+        long generation = scrollGeneration;
+        SwingUtilities.invokeLater(() -> {
+            if (generation != scrollGeneration || !followLogBottom) {
+                autoScrollPending = false;
+                return;
+            }
+            JScrollBar scrollBar = logScrollPane.getVerticalScrollBar();
+            BoundedRangeModel model = scrollBar.getModel();
+            updatingLogDisplay = true;
+            programmaticScroll = true;
+            try {
+                scrollBar.setValue(Math.max(0, model.getMaximum() - model.getExtent()));
+            } finally {
+                programmaticScroll = false;
+                updatingLogDisplay = false;
+                // Let layout notifications caused by this operation finish before
+                // automatic/manual scroll detection becomes active again.
+                SwingUtilities.invokeLater(() -> autoScrollPending = false);
+            }
+        });
     }
 
     private void exportLogs() {
@@ -547,7 +804,21 @@ public class EnhancedLogPanel extends JPanel {
     private class CommandInputKeyListener extends KeyAdapter {
         @Override
         public void keyPressed(KeyEvent e) {
-            switch (e.getKeyCode()) {
+            int keyCode = e.getKeyCode();
+            if (keyCode != KeyEvent.VK_UP
+                    && keyCode != KeyEvent.VK_DOWN
+                    && keyCode != KeyEvent.VK_TAB
+                    && keyCode != KeyEvent.VK_ENTER
+                    && keyCode != KeyEvent.VK_ESCAPE) {
+                // Any normal edit invalidates pending completion ranges. Never
+                // let an async suggestion act on text that changed afterwards.
+                // Typing also re-enables live suggestions after a completion.
+                suggestionsSuppressed = false;
+                suggestionGeneration++;
+                hideSuggestions();
+            }
+
+            switch (keyCode) {
                 case KeyEvent.VK_UP:
                     if (suggestionWindow.isVisible() && suggestionModel.size() > 0) {
                         // Navigate suggestions up
@@ -612,6 +883,8 @@ public class EnhancedLogPanel extends JPanel {
     }
 
     private void navigateHistory(int direction) {
+        suggestionGeneration++;
+        hideSuggestions();
         if (commandHistory.isEmpty()) return;
 
         historyIndex = Math.max(0, Math.min(commandHistory.size(), historyIndex + direction));
@@ -623,34 +896,62 @@ public class EnhancedLogPanel extends JPanel {
         }
     }
 
+    private class CommandCaretListener implements CaretListener {
+        @Override
+        public void caretUpdate(CaretEvent event) {
+            // Mouse clicks and programmatic history changes can move the caret
+            // without producing a key event. Invalidate completion ranges then.
+            suggestionGeneration++;
+            hideSuggestions();
+        }
+    }
+
+    /**
+     * Live completion: the list follows what is typed. It only reads the text
+     * and moves a non-focusable popup, so it can never reorder the characters
+     * of the command itself.
+     */
     private class CommandDocumentListener implements DocumentListener {
         @Override
-        public void insertUpdate(DocumentEvent e) {
-            updateSuggestions();
+        public void insertUpdate(DocumentEvent event) {
+            scheduleSuggestions();
         }
 
         @Override
-        public void removeUpdate(DocumentEvent e) {
-            updateSuggestions();
+        public void removeUpdate(DocumentEvent event) {
+            scheduleSuggestions();
         }
 
         @Override
-        public void changedUpdate(DocumentEvent e) {
-            updateSuggestions();
+        public void changedUpdate(DocumentEvent event) {
         }
+    }
+
+    private void scheduleSuggestions() {
+        if (suggestionsSuppressed) {
+            return;
+        }
+        // Run after Swing has finished the document change, so Brigadier always
+        // parses the text the user can see.
+        SwingUtilities.invokeLater(this::updateSuggestions);
     }
 
     // Wrapper class for suggestions
     private static class SuggestionItem {
-        final Suggestion suggestion;
+        final String text;
+        final int start;
+        final int end;
 
-        SuggestionItem(Suggestion suggestion) {
-            this.suggestion = suggestion;
+        SuggestionItem(Suggestion suggestion, int offset) {
+            this.text = CommandSuggestionUtils.displayText(suggestion.getText(),
+                    suggestion.getRange().getStart(), EnhancedLogPanel::isRegistryId);
+            this.start = suggestion.getRange().getStart() + offset;
+            this.end = suggestion.getRange().getEnd() + offset;
         }
 
         @Override
         public String toString() {
-            return suggestion.getText();
+            return text;
         }
     }
 
