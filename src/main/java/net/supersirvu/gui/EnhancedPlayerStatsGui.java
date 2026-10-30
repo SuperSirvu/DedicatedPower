@@ -6,11 +6,10 @@
 
 package net.supersirvu.gui;
 
-import net.minecraft.entity.Entity;
 import net.minecraft.server.MinecraftServer;
-import net.minecraft.server.world.ServerWorld;
-import net.minecraft.util.TimeHelper;
-import net.minecraft.util.Util;
+import net.minecraft.server.level.ServerLevel;
+import net.minecraft.util.TimeUtil;
+import net.minecraft.world.entity.Entity;
 
 import javax.swing.*;
 import java.awt.*;
@@ -20,12 +19,15 @@ import java.text.DecimalFormat;
 import java.text.DecimalFormatSymbols;
 import java.util.Locale;
 
-public class EnhancedPlayerStatsGui extends JComponent {
-    private static final DecimalFormat AVG_TICK_FORMAT = Util.make(
-            new DecimalFormat("########0.000"),
-            decimalFormat -> decimalFormat.setDecimalFormatSymbols(DecimalFormatSymbols.getInstance(Locale.ROOT))
-    );
+public class EnhancedPlayerStatsGui extends JComponent implements ThemeManager.ThemeListener {
+    private static final DecimalFormat AVG_TICK_FORMAT = createTickFormat();
     private static final DecimalFormat NUMBER_FORMAT = new DecimalFormat("#,###");
+
+    private static DecimalFormat createTickFormat() {
+        DecimalFormat format = new DecimalFormat("########0.000");
+        format.setDecimalFormatSymbols(DecimalFormatSymbols.getInstance(Locale.ROOT));
+        return format;
+    }
 
     // Graph data
     private final int[] memoryUsePercentage = new int[256];
@@ -38,8 +40,6 @@ public class EnhancedPlayerStatsGui extends JComponent {
     private final Timer timer;
 
     // Colors
-    private static final Color BG_COLOR = new Color(255, 255, 255);
-    private static final Color TEXT_COLOR = new Color(0, 0, 0);
     private static final Color MEMORY_GOOD = new Color(40, 180, 99);
     private static final Color MEMORY_WARNING = new Color(241, 196, 15);
     private static final Color MEMORY_CRITICAL = new Color(231, 76, 60);
@@ -57,12 +57,13 @@ public class EnhancedPlayerStatsGui extends JComponent {
 
     public EnhancedPlayerStatsGui(MinecraftServer server) {
         this.server = server;
+        ThemeManager.getInstance().addListener(this);
         this.startTime = System.currentTimeMillis();
         this.setPreferredSize(new Dimension(456, 246));
         this.setMinimumSize(new Dimension(400, 200));
         this.timer = new Timer(500, event -> this.update());
         this.timer.start();
-        this.setBackground(BG_COLOR);
+        this.setBackground(ThemeManager.getInstance().getPanelBackground());
 
         // Add mouse motion listener for tooltips
         this.addMouseMotionListener(new MouseMotionAdapter() {
@@ -82,16 +83,16 @@ public class EnhancedPlayerStatsGui extends JComponent {
         long freeMemory = runtime.freeMemory();
 
         // Calculate stats
-        double avgTickMs = (double)this.server.getAverageNanosPerTick() / TimeHelper.MILLI_IN_NANOS;
+        double avgTickMs = (double)this.server.getAverageTickTimeNanos() / TimeUtil.NANOSECONDS_PER_MILLISECOND;
         double tps = Math.min(20.0, 1000.0 / avgTickMs);
 
         int entityCount = 0;
         int chunkCount = 0;
-        for (ServerWorld world : this.server.getWorlds()) {
-            for (Entity ignored : world.iterateEntities()) {
+        for (ServerLevel world : this.server.getAllLevels()) {
+            for (Entity ignored : world.getAllEntities()) {
                 entityCount++;
             }
-            chunkCount += world.getChunkManager().getLoadedChunkCount();
+            chunkCount += world.getChunkSource().getLoadedChunksCount();
         }
 
         // Update text lines
@@ -141,7 +142,8 @@ public class EnhancedPlayerStatsGui extends JComponent {
         int height = getHeight();
 
         // Background
-        g2d.setColor(BG_COLOR);
+        ThemeManager themeManager = ThemeManager.getInstance();
+        g2d.setColor(themeManager.getPanelBackground());
         g2d.fillRect(0, 0, width, height);
 
         // Calculate graph dimensions
@@ -175,11 +177,12 @@ public class EnhancedPlayerStatsGui extends JComponent {
         int graphX = 10;
 
         // Draw grid background
-        g2d.setColor(Color.WHITE);
+        ThemeManager themeManager = ThemeManager.getInstance();
+        g2d.setColor(themeManager.getGraphBackground());
         g2d.fillRect(graphX, y, graphWidth, height);
 
         // Draw grid lines
-        g2d.setColor(new Color(220, 220, 220));
+        g2d.setColor(themeManager.getGridColor());
         for (int i = 0; i <= 5; i++) {
             int gridY = y + (height * i / 5);
             g2d.drawLine(graphX, gridY, graphX + graphWidth, gridY);
@@ -190,13 +193,13 @@ public class EnhancedPlayerStatsGui extends JComponent {
         }
 
         // Draw title
-        g2d.setColor(Color.BLACK);
+        g2d.setColor(ThemeManager.getInstance().getForeground());
         g2d.setFont(new Font("Arial", Font.BOLD, 11));
         g2d.drawString(title, graphX + 5, y - 2);
 
         // Draw scale labels
         g2d.setFont(new Font("Arial", Font.PLAIN, 9));
-        g2d.setColor(Color.BLACK);
+        g2d.setColor(ThemeManager.getInstance().getForeground());
         g2d.drawString(String.valueOf((int)maxVal), graphX + graphWidth + 5, y + 10);
         g2d.drawString(String.valueOf((int)(maxVal / 2)), graphX + graphWidth + 5, y + height / 2 + 5);
         g2d.drawString(String.valueOf((int)minVal), graphX + graphWidth + 5, y + height);
@@ -216,7 +219,7 @@ public class EnhancedPlayerStatsGui extends JComponent {
         }
 
         // Draw border
-        g2d.setColor(new Color(100, 100, 100));
+        g2d.setColor(ThemeManager.getInstance().getBorderColor());
         g2d.drawRect(graphX, y, graphWidth, height);
     }
 
@@ -230,7 +233,9 @@ public class EnhancedPlayerStatsGui extends JComponent {
     }
 
     private void drawStats(Graphics2D g2d, int y) {
-        g2d.setColor(TEXT_COLOR);
+        // The stats lines are painted by this component, not by a Swing label,
+        // so they follow the active theme explicitly instead of staying black.
+        g2d.setColor(ThemeManager.getInstance().getForeground());
         g2d.setFont(new Font("Monospaced", Font.PLAIN, 11));
 
         for (int i = 0; i < this.lines.length; i++) {
@@ -274,9 +279,11 @@ public class EnhancedPlayerStatsGui extends JComponent {
             tooltipX = mx - tooltipWidth - 10;
         }
 
-        g2d.setColor(new Color(255, 255, 255, 200));
+        g2d.setColor(ThemeManager.getInstance().isDark()
+                ? new Color(70, 70, 70, 220)
+                : new Color(255, 255, 255, 200));
         g2d.fillRoundRect(tooltipX, tooltipY, tooltipWidth, tooltipHeight, 5, 5);
-        g2d.setColor(TEXT_COLOR);
+        g2d.setColor(ThemeManager.getInstance().getForeground());
         g2d.drawRoundRect(tooltipX, tooltipY, tooltipWidth, tooltipHeight, 5, 5);
 
         g2d.setFont(new Font("Arial", Font.PLAIN, 10));
@@ -303,6 +310,15 @@ public class EnhancedPlayerStatsGui extends JComponent {
         } else {
             return TPS_POOR;
         }
+    }
+
+    @Override
+    public void themeChanged(ThemeManager themeManager) {
+        SwingUtilities.invokeLater(() -> {
+            setBackground(themeManager.getPanelBackground());
+            revalidate();
+            repaint();
+        });
     }
 
     public void stop() {

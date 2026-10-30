@@ -1,0 +1,191 @@
+name: "🐛 Bug Report (English)"
+description: "Something is not working as expected? Help us investigate it."
+title: "[Bug]: "
+labels:
+  - "bug"
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ### 🛠️ DedicatedPower Bug Report
+
+        Thank you for helping improve DedicatedPower. Please provide as much technical detail as possible, especially when reporting a Minecraft or Fabric compatibility problem.
+
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Pre-flight checklist
+      description: Please confirm these points before submitting the report.
+      options:
+        - label: I have searched the existing issues and this does not appear to be a duplicate.
+          required: true
+        - label: I am using a supported and unmodified Minecraft/Fabric installation, or I have listed my other mods below.
+          required: true
+        - label: I have included the relevant crash report, latest.log, or server log when available.
+          required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Affected area
+      description: Which part of DedicatedPower is affected?
+      options:
+        - Dedicated server GUI startup
+        - Server console and log panel
+        - Command input or autocomplete
+        - Player list or player management
+        - Player statistics and performance graphs
+        - Server menu bar
+        - World settings or game rules
+        - Backup, export, or server tools
+        - Mixin or access widener failure
+        - Build or development environment
+        - Other
+    validations:
+      required: true
+
+  - type: dropdown
+    id: frequency
+    attributes:
+      label: Reproduction frequency
+      description: How often can you reproduce the problem?
+      options:
+        - Always (100%)
+        - Often (more than 50%)
+        - Sometimes (less than 50%)
+        - Rarely (once or twice)
+        - I cannot reproduce it consistently
+    validations:
+      required: true
+
+  - type: textarea
+    id: summary
+    attributes:
+      label: What happened?
+      description: Describe the problem clearly and explain what you were doing when it occurred.
+      placeholder: "When I start the dedicated server, ..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      description: Provide precise steps that allow someone else to reproduce the issue.
+      placeholder: |
+        1. Install Minecraft ...
+        2. Install Fabric Loader ...
+        3. Add DedicatedPower ...
+        4. Start the dedicated server ...
+        5. Open or use ...
+      value: |
+        1.
+        2.
+        3.
+        4.
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected-actual
+    attributes:
+      label: Expected behavior vs. actual behavior
+      description: What did you expect to happen, and what happened instead?
+      placeholder: |
+        Expected:
+
+        Actual:
+    validations:
+      required: true
+
+  - type: markdown
+    attributes:
+      value: "---"
+
+  - type: input
+    id: dedicatedpower-version
+    attributes:
+      label: DedicatedPower version or commit
+      description: Include the release version, build artifact version, or Git commit you are using.
+      placeholder: "26.2-1.0.0-beta or abc1234"
+    validations:
+      required: true
+
+  - type: input
+    id: minecraft-version
+    attributes:
+      label: Minecraft version
+      description: Include the exact version, for example 26.2.
+      placeholder: "26.2"
+    validations:
+      required: true
+
+  - type: input
+    id: loader-version
+    attributes:
+      label: Fabric Loader version
+      placeholder: "0.19.3"
+    validations:
+      required: true
+
+  - type: input
+    id: fabric-api-version
+    attributes:
+      label: Fabric API version
+      description: Write "not installed" if you are testing without Fabric API.
+      placeholder: "0.152.0+26.2"
+    validations:
+      required: true
+
+  - type: input
+    id: java-version
+    attributes:
+      label: Java version
+      description: Include the full output of java -version when possible.
+      placeholder: "Java 25.0.x"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: operating-system
+    attributes:
+      label: Operating system
+      options:
+        - Windows 11
+        - Windows 10
+        - macOS
+        - Linux
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: mods
+    attributes:
+      label: Other installed mods
+      description: List all other mods and their versions, or write "DedicatedPower only".
+      placeholder: |
+        - Mod name - version
+        - Mod name - version
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs or crash report
+      description: Paste the relevant log or crash report here and remove sensitive information such as IP addresses or passwords.
+      placeholder: |
+        Paste the relevant log or crash report here.
+      render: shell
+
+  - type: textarea
+    id: screenshots
+    attributes:
+      label: Screenshots or recordings
+      description: Drag and drop screenshots or recordings here if they help demonstrate the issue.
+
+  - type: textarea
+    id: additional-context
+    attributes:
+      label: Additional context
+      description: Add anything else that may help, such as recent updates, configuration changes, or a minimal reproduction.
+      placeholder: "This started after ..."

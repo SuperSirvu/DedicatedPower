@@ -9,13 +9,13 @@ package net.supersirvu.gui;
 import com.mojang.authlib.GameProfile;
 import com.mojang.authlib.minecraft.MinecraftProfileTexture;
 import com.mojang.authlib.minecraft.MinecraftProfileTextures;
-import net.minecraft.server.BannedPlayerEntry;
-import net.minecraft.server.BannedPlayerList;
+import net.minecraft.network.chat.Component;
 import net.minecraft.server.MinecraftServer;
-import net.minecraft.server.PlayerConfigEntry;
-import net.minecraft.server.network.ServerPlayerEntity;
-import net.minecraft.text.Text;
-import net.minecraft.world.GameMode;
+import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.server.players.NameAndId;
+import net.minecraft.server.players.UserBanList;
+import net.minecraft.server.players.UserBanListEntry;
+import net.minecraft.world.level.GameType;
 import net.supersirvu.DedicatedPower;
 
 import javax.imageio.ImageIO;
@@ -32,8 +32,9 @@ import java.net.URL;
 import java.util.*;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
 
-public class EnhancedPlayerListGui extends JPanel {
+public class EnhancedPlayerListGui extends JPanel implements ThemeManager.ThemeListener {
     private static final String[] SKINS = new String[]{
             "textures/entity/player/slim/alex.png",
             "textures/entity/player/slim/ari.png",
@@ -62,15 +63,17 @@ public class EnhancedPlayerListGui extends JPanel {
     private int tick;
     private SortMode sortMode = SortMode.NAME;
     private String searchFilter = "";
+    private PlayerCellRenderer playerCellRenderer;
 
     public EnhancedPlayerListGui(MinecraftServer server) {
         this.server = server;
+        ThemeManager.getInstance().addListener(this);
         this.listModel = new DefaultListModel<>();
         this.playerList = new JList<>(listModel);
-        this.headCache = new HashMap<>();
+        this.headCache = new ConcurrentHashMap<>();
 
         this.setLayout(new BorderLayout());
-        this.setBackground(new Color(240, 240, 240));
+        this.setBackground(ThemeManager.getInstance().getPanelBackground());
 
         // Setup player list
         setupPlayerList();
@@ -84,8 +87,9 @@ public class EnhancedPlayerListGui extends JPanel {
         scrollPane.setBorder(BorderFactory.createEmptyBorder());
         this.add(scrollPane, BorderLayout.CENTER);
 
-        // Register tick handler
-        server.addServerGuiTickable(this::tick);
+        // Refresh the player list periodically (replaces the removed server GUI tick hook)
+        Timer refreshTimer = new Timer(1000, e -> tick());
+        refreshTimer.start();
 
         // Start async head loading
         startHeadLoading();
@@ -94,7 +98,7 @@ public class EnhancedPlayerListGui extends JPanel {
     private void startHeadLoading() {
         // Periodically check and load missing player heads
         Timer headLoadTimer = new Timer(2000, e -> {
-            for (ServerPlayerEntity player : server.getPlayerManager().getPlayerList()) {
+            for (ServerPlayer player : server.getPlayerList().getPlayers()) {
                 String uuid = player.getGameProfile().id().toString();
                 if (!headCache.containsKey(uuid)) {
                     loadPlayerHead(player.getGameProfile());
@@ -111,7 +115,7 @@ public class EnhancedPlayerListGui extends JPanel {
             try {
                 // Get skin URL from Mojang session server
                 MinecraftProfileTextures textures =
-                        server.getApiServices().sessionService().getTextures(profile);
+                        server.services().sessionService().getTextures(profile);
 
                 if (textures.skin() != null) {
                     MinecraftProfileTexture skinTexture = textures.skin();
@@ -197,9 +201,14 @@ public class EnhancedPlayerListGui extends JPanel {
     }
 
     private void setupPlayerList() {
-        playerList.setCellRenderer(new PlayerCellRenderer());
+        playerCellRenderer = new PlayerCellRenderer();
+        playerList.setCellRenderer(playerCellRenderer);
         playerList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
-        playerList.setBackground(Color.WHITE);
+        ThemeManager themeManager = ThemeManager.getInstance();
+        playerList.setBackground(themeManager.getInputBackground());
+        playerList.setForeground(themeManager.getForeground());
+        playerList.setSelectionBackground(themeManager.getSelectionBackground());
+        playerList.setSelectionForeground(themeManager.getForeground());
         playerList.setFixedCellHeight(40);
 
         // Add right-click context menu
@@ -229,7 +238,7 @@ public class EnhancedPlayerListGui extends JPanel {
 
     private JPanel createHeaderPanel() {
         JPanel panel = new JPanel(new BorderLayout());
-        panel.setBackground(new Color(250, 250, 250));
+        panel.setBackground(ThemeManager.getInstance().getSurfaceBackground());
         panel.setBorder(BorderFactory.createEmptyBorder(5, 5, 5, 5));
 
         // Search field
@@ -268,7 +277,7 @@ public class EnhancedPlayerListGui extends JPanel {
         banListButton.addActionListener(e -> showBanList());
 
         JPanel controlPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 5, 0));
-        controlPanel.setBackground(new Color(250, 250, 250));
+        controlPanel.setBackground(ThemeManager.getInstance().getSurfaceBackground());
         controlPanel.add(sortButton);
         controlPanel.add(banListButton);
 
@@ -287,7 +296,7 @@ public class EnhancedPlayerListGui extends JPanel {
     private void updatePlayerList() {
         List<PlayerInfo> players = new ArrayList<>();
 
-        for (ServerPlayerEntity player : server.getPlayerManager().getPlayerList()) {
+        for (ServerPlayer player : server.getPlayerList().getPlayers()) {
             String name = player.getGameProfile().name();
 
             // Apply search filter
@@ -295,14 +304,15 @@ public class EnhancedPlayerListGui extends JPanel {
                 continue;
             }
 
+            NameAndId nameAndId = new NameAndId(player.getGameProfile());
             PlayerInfo info = new PlayerInfo(
                     player.getGameProfile(),
-                    player.getPlayerConfigEntry(),
-                    player.networkHandler.getLatency(),
-                    player.interactionManager.getGameMode(),
-                    server.getPlayerManager().isOperator(player.getPlayerConfigEntry()),
+                    nameAndId,
+                    player.connection.latency(),
+                    player.gameMode(),
+                    server.getPlayerList().isOp(nameAndId),
                     player.getHealth(),
-                    player.getHungerManager().getFoodLevel()
+                    player.getFoodData().getFoodLevel()
             );
             players.add(info);
         }
@@ -324,8 +334,8 @@ public class EnhancedPlayerListGui extends JPanel {
         kickItem.addActionListener(e -> {
             String reason = JOptionPane.showInputDialog(this, "Kick reason:", "Kick Player", JOptionPane.QUESTION_MESSAGE);
             if (reason != null) {
-                ServerPlayerEntity serverPlayer = server.getPlayerManager().getPlayer(player.profile.id());
-                serverPlayer.networkHandler.disconnect(Text.literal(reason));
+                ServerPlayer serverPlayer = server.getPlayerList().getPlayer(player.profile.id());
+                serverPlayer.connection.disconnect(Component.literal(reason));
             }
         });
 
@@ -333,13 +343,13 @@ public class EnhancedPlayerListGui extends JPanel {
         banItem.addActionListener(e -> {
             String reason = JOptionPane.showInputDialog(this, "Ban reason:", "Ban Player", JOptionPane.QUESTION_MESSAGE);
             if (reason != null) {
-                BannedPlayerList bannedPlayerList = server.getPlayerManager().getUserBanList();
-                if (!bannedPlayerList.contains(player.configEntry)) {
-                    BannedPlayerEntry bannedPlayerEntry = new BannedPlayerEntry(player.configEntry, null, "SERVER", null, reason);
+                UserBanList bannedPlayerList = server.getPlayerList().getBans();
+                if (!bannedPlayerList.isBanned(player.nameAndId)) {
+                    UserBanListEntry bannedPlayerEntry = new UserBanListEntry(player.nameAndId, null, "SERVER", null, reason);
                     bannedPlayerList.add(bannedPlayerEntry);
-                    ServerPlayerEntity serverPlayerEntity = server.getPlayerManager().getPlayer(player.profile.id());
+                    ServerPlayer serverPlayerEntity = server.getPlayerList().getPlayer(player.profile.id());
                     if (serverPlayerEntity != null) {
-                        serverPlayerEntity.networkHandler.disconnect(Text.translatable("multiplayer.disconnect.banned"));
+                        serverPlayerEntity.connection.disconnect(Component.translatable("multiplayer.disconnect.banned"));
                     }
                 }
             }
@@ -349,16 +359,20 @@ public class EnhancedPlayerListGui extends JPanel {
         messageItem.addActionListener(e -> {
             String message = JOptionPane.showInputDialog(this, "Message:", "Send Message", JOptionPane.QUESTION_MESSAGE);
             if (message != null) {
-                server.getPlayerManager().getPlayer(player.profile.id()).sendMessage(Text.literal("SERVER: " + message));
+                // Run on the server thread so the GUI is never blocked
+                server.execute(() -> server.getCommands().performPrefixedCommand(
+                        server.createCommandSourceStack(),
+                        "tell " + player.profile.name() + " SERVER: " + message
+                ));
             }
         });
 
         JMenuItem opItem = new JMenuItem(player.isOp ? "Deop Player" : "Op Player");
         opItem.addActionListener(e -> {
-            if(player.isOp) {
-                server.getPlayerManager().removeFromOperators(player.configEntry);
+            if (player.isOp) {
+                server.getPlayerList().deop(player.nameAndId);
             } else {
-                server.getPlayerManager().addToOperators(player.configEntry);
+                server.getPlayerList().op(player.nameAndId);
             }
         });
 
@@ -368,6 +382,7 @@ public class EnhancedPlayerListGui extends JPanel {
         menu.addSeparator();
         menu.add(opItem);
 
+        ThemeManager.getInstance().applyComponentTheme(menu);
         menu.show(playerList, x, y);
     }
 
@@ -376,7 +391,7 @@ public class EnhancedPlayerListGui extends JPanel {
                 "Player: %s\n\nPing: %d ms\nGame Mode: %s\nOperator: %s\nHealth: %.1f\nHunger: %d",
                 player.profile.name(),
                 player.ping,
-                player.gameMode.getTranslatableName(),
+                player.gameMode.getName(),
                 player.isOp ? "Yes" : "No",
                 player.health,
                 player.hunger
@@ -395,7 +410,7 @@ public class EnhancedPlayerListGui extends JPanel {
         JList<String> banList = new JList<>(banModel);
 
         // Get banned players
-        for (String bannedPlayer : server.getPlayerManager().getUserBanList().getNames()) {
+        for (String bannedPlayer : server.getPlayerList().getBans().getUserList()) {
             banModel.addElement(bannedPlayer);
         }
 
@@ -410,10 +425,10 @@ public class EnhancedPlayerListGui extends JPanel {
                         "Confirm Unban",
                         JOptionPane.YES_NO_OPTION);
                 if (confirm == JOptionPane.YES_OPTION) {
-                    BannedPlayerList bannedPlayerList = server.getPlayerManager().getUserBanList();
-                    PlayerConfigEntry player = bannedPlayerList.values().stream().filter(entry -> entry.getKey().name().equals(selected)).findFirst().orElseThrow().getKey();
-                    if (bannedPlayerList.contains(player)) {
-                        bannedPlayerList.remove(player);
+                    UserBanList bannedPlayerList = server.getPlayerList().getBans();
+                    NameAndId nameAndId = NameAndId.createOffline(selected);
+                    if (bannedPlayerList.isBanned(nameAndId)) {
+                        bannedPlayerList.remove(nameAndId);
                     }
                     banModel.removeElement(selected);
                 }
@@ -435,16 +450,16 @@ public class EnhancedPlayerListGui extends JPanel {
     // Player info data class
     private static class PlayerInfo {
         final GameProfile profile;
-        final PlayerConfigEntry configEntry;
+        final NameAndId nameAndId;
         final int ping;
-        final GameMode gameMode;
+        final GameType gameMode;
         final boolean isOp;
         final float health;
         final int hunger;
 
-        PlayerInfo(GameProfile profile, PlayerConfigEntry configEntry, int ping, GameMode gameMode, boolean isOp, float health, int hunger) {
+        PlayerInfo(GameProfile profile, NameAndId nameAndId, int ping, GameType gameMode, boolean isOp, float health, int hunger) {
             this.profile = profile;
-            this.configEntry = configEntry;
+            this.nameAndId = nameAndId;
             this.ping = ping;
             this.gameMode = gameMode;
             this.isOp = isOp;
@@ -479,7 +494,7 @@ public class EnhancedPlayerListGui extends JPanel {
 
             infoLabel = new JLabel();
             infoLabel.setFont(new Font("Arial", Font.PLAIN, 10));
-            infoLabel.setForeground(Color.GRAY);
+            infoLabel.setForeground(ThemeManager.getInstance().getMutedForeground());
 
             textPanel.add(nameLabel);
             textPanel.add(infoLabel);
@@ -503,14 +518,21 @@ public class EnhancedPlayerListGui extends JPanel {
         }
 
         @Override
-        public Component getListCellRendererComponent(JList<? extends PlayerInfo> list, PlayerInfo player,
+        public java.awt.Component getListCellRendererComponent(JList<? extends PlayerInfo> list, PlayerInfo player,
                                                       int index, boolean isSelected, boolean cellHasFocus) {
-            // Set background
+            ThemeManager themeManager = ThemeManager.getInstance();
+            Color cellForeground = isSelected ? list.getSelectionForeground() : themeManager.getForeground();
+
+            // Set background and foreground explicitly. A Swing cell renderer is
+            // reused outside the normal component hierarchy, so ThemeManager's
+            // recursive component pass cannot update these labels for us.
             if (isSelected) {
-                setBackground(new Color(184, 207, 229));
+                setBackground(list.getSelectionBackground());
             } else {
-                setBackground(index % 2 == 0 ? Color.WHITE : new Color(250, 250, 250));
+                setBackground(index % 2 == 0 ? themeManager.getInputBackground() : themeManager.getSurfaceBackground());
             }
+            nameLabel.setForeground(cellForeground);
+            infoLabel.setForeground(isSelected ? cellForeground : themeManager.getMutedForeground());
 
             // Set player head
             String uuid = player.profile.id().toString();
@@ -529,11 +551,15 @@ public class EnhancedPlayerListGui extends JPanel {
             nameLabel.setText(player.profile.name());
 
             // Set info (gamemode)
-            infoLabel.setText("Mode: " + player.gameMode.getTranslatableName());
+            infoLabel.setText("Mode: " + player.gameMode.getName());
 
-            // Set ping with color coding
+            // Set ping with color coding. Use the selection foreground for a
+            // selected row so status colors never become unreadable on the
+            // themed selection background.
             pingLabel.setText(player.ping + " ms");
-            if (player.ping < 50) {
+            if (isSelected) {
+                pingLabel.setForeground(cellForeground);
+            } else if (player.ping < 50) {
                 pingLabel.setForeground(new Color(40, 180, 99));
             } else if (player.ping < 100) {
                 pingLabel.setForeground(new Color(241, 196, 15));
@@ -557,11 +583,30 @@ public class EnhancedPlayerListGui extends JPanel {
         }
     }
 
+    @Override
+    public void themeChanged(ThemeManager themeManager) {
+        SwingUtilities.invokeLater(() -> {
+            setBackground(themeManager.getPanelBackground());
+            playerList.setBackground(themeManager.getInputBackground());
+            playerList.setForeground(themeManager.getForeground());
+            playerList.setSelectionBackground(themeManager.getSelectionBackground());
+            playerList.setSelectionForeground(themeManager.getForeground());
+            themeManager.applyComponentTheme(this);
+            playerList.setBackground(themeManager.getInputBackground());
+            playerList.setSelectionBackground(themeManager.getSelectionBackground());
+            playerList.setSelectionForeground(themeManager.getForeground());
+            playerCellRenderer = new PlayerCellRenderer();
+            playerList.setCellRenderer(playerCellRenderer);
+            playerList.repaint();
+            repaint();
+        });
+    }
+
     // Sort modes
     private enum SortMode {
         NAME("Name", Comparator.comparing(p -> p.profile.name())),
         PING("Ping", Comparator.comparingInt(p -> p.ping)),
-        GAMEMODE("Game Mode", Comparator.comparing(p -> p.gameMode.getTranslatableName().getString()));
+        GAMEMODE("Game Mode", Comparator.comparing(p -> p.gameMode.getName()));
 
         private final String displayName;
         private final Comparator<PlayerInfo> comparator;

@@ -1,0 +1,52 @@
+# Automatically test the project for every push and submitted pull request.
+# Runs the full Gradle build (compilation, access widener validation, mixin
+# processing and the test task) and then verifies the structure of the built
+# mod jar so packaging problems are caught early.
+
+name: test
+on:
+  pull_request:
+  # Branches only: creating or renaming a release tag must not start a build.
+  push:
+    branches:
+      - '**'
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: checkout repository
+        uses: actions/checkout@v4
+      - name: validate gradle wrapper
+        uses: gradle/actions/wrapper-validation@v4
+      - name: setup jdk
+        uses: actions/setup-java@v4
+        with:
+          java-version: '25'
+          distribution: 'microsoft'
+      - name: make gradle wrapper executable
+        run: chmod +x ./gradlew
+      - name: build and run tests
+        run: ./gradlew build
+      - name: verify mod jar structure
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          JAR=$(find build/libs -maxdepth 1 -type f -name '*.jar' \
+            ! -name '*-sources.jar' \
+            ! -name '*-dev.jar' \
+            -print | head -1)
+
+          test -n "$JAR"
+          echo "Inspecting: $JAR"
+
+          unzip -l "$JAR" | grep -E 'fabric.mod.json' >/dev/null
+          echo "OK: fabric.mod.json present"
+
+          unzip -l "$JAR" | grep -E 'dedicatedpower.mixins.json' >/dev/null
+          echo "OK: dedicatedpower.mixins.json present"
+
+          unzip -l "$JAR" | grep -E 'dedicatedpower.accesswidener' >/dev/null
+          echo "OK: access widener present"

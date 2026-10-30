@@ -1,40 +1,81 @@
-# gradle
+# DedicatedPower - Fabric mod for Minecraft dedicated servers
 
+# Gradle
 .gradle/
 build/
 out/
 classes/
+.gradle-cache/
 
-# eclipse
-
+# Eclipse
 *.launch
 
-# idea
-
+# IntelliJ IDEA
 .idea/
 *.iml
 *.ipr
 *.iws
 
-# vscode
-
+# VS Code and other editors
 .settings/
 .vscode/
 bin/
 .classpath
 .project
+.navigation/
+captures/
 
-# macos
-
+# macOS
 *.DS_Store
 
-# fabric
+# Local configuration (SDK path, machine-specific settings)
+local.properties
 
+# Fabric / Loom
 run/
+run-*/
+remappedSrc/
 
-# java
-
+# Java crash logs, heap dumps and flight recordings
 hs_err_*.log
 replay_*.log
+replay_pid*.log
 *.hprof
 *.jfr
+crash-reports/
+
+# Runtime files of a local test server and of the mod itself.
+# The GUI keeps its appearance settings and the MOTD history under config/.
+/server.properties
+/server.properties.bak
+/eula.txt
+/banned-ips.json
+/banned-players.json
+/ops.json
+/usercache.json
+/whitelist.json
+/config/
+/logs/
+/mods/
+/world/
+/world_nether/
+/world_the_end/
+/backups/
+
+# Logs
+*.log
+
+# Agent-local tooling, scratch files and community skills
+.agents/
+.claude/
+agent/
+skills-lock.json
+.ignore/
+.freebuff/
+
+# Python cache (repository scripts)
+__pycache__/
+*.pyc
+
+# Local source material, never part of the branch
+*.zip
